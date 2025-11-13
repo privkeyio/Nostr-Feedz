@@ -55,6 +55,7 @@ model Subscription {
     id         String   @id @default(cuid())
     userPubkey String   // Nostr pubkey
     feedId     String
+    tags       String[] @default([]) // User-defined tags/categories
     createdAt  DateTime @default(now())
     
     // Relations  
@@ -62,6 +63,7 @@ model Subscription {
     
     @@unique([userPubkey, feedId])
     @@index([userPubkey])
+    @@index([userPubkey, tags])
 }
 
 model ReadItem {

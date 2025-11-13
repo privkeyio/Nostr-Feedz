@@ -106,13 +106,13 @@ export function SettingsDialog({ isOpen, onClose }: SettingsDialogProps) {
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-hidden flex flex-col">
+      <div className="bg-white dark:bg-slate-800 rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-hidden flex flex-col">
         {/* Header */}
-        <div className="flex items-center justify-between p-6 border-b">
-          <h2 className="text-2xl font-bold">Settings</h2>
+        <div className="flex items-center justify-between p-6 border-b border-slate-200 dark:border-slate-700">
+          <h2 className="text-2xl font-bold text-slate-900 dark:text-slate-100">Settings</h2>
           <button
             onClick={onClose}
-            className="p-2 hover:bg-gray-100 rounded-full transition-colors"
+            className="p-2 text-slate-800 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full transition-colors"
           >
             ✕
           </button>
@@ -124,22 +124,22 @@ export function SettingsDialog({ isOpen, onClose }: SettingsDialogProps) {
             {/* Relays Section */}
             <div>
               <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-semibold">Nostr Relays</h3>
+                <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Nostr Relays</h3>
                 <button
                   onClick={resetToDefaults}
-                  className="text-sm text-blue-600 hover:text-blue-700"
+                  className="text-sm text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
                 >
                   Reset to Defaults
                 </button>
               </div>
               
-              <p className="text-sm text-gray-600 mb-4">
+              <p className="text-sm text-slate-600 dark:text-slate-400 mb-4">
                 Manage which Nostr relays to use for fetching content. More relays = better content discovery but slower performance.
               </p>
 
               {/* Add New Relay */}
               <div className="mb-4">
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
                   Add Custom Relay
                 </label>
                 <div className="flex gap-2">
@@ -149,7 +149,7 @@ export function SettingsDialog({ isOpen, onClose }: SettingsDialogProps) {
                     onChange={(e) => setNewRelayUrl(e.target.value)}
                     onKeyPress={(e) => e.key === 'Enter' && addRelay()}
                     placeholder="wss://relay.example.com"
-                    className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="flex-1 px-3 py-2 bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                   <button
                     onClick={addRelay}
@@ -160,7 +160,7 @@ export function SettingsDialog({ isOpen, onClose }: SettingsDialogProps) {
                   </button>
                 </div>
                 {error && (
-                  <div className="mt-2 flex items-center gap-2 text-sm text-red-600">
+                  <div className="mt-2 flex items-center gap-2 text-sm text-red-600 dark:text-red-400">
                     <span>⚠</span>
                     {error}
                   </div>
@@ -169,7 +169,7 @@ export function SettingsDialog({ isOpen, onClose }: SettingsDialogProps) {
 
               {/* Popular Relays */}
               <div className="mb-4">
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
                   Popular Relays
                 </label>
                 <div className="flex flex-wrap gap-2">
@@ -180,10 +180,10 @@ export function SettingsDialog({ isOpen, onClose }: SettingsDialogProps) {
                         key={relay.url}
                         onClick={() => !isAdded && addPopularRelay(relay.url)}
                         disabled={isAdded}
-                        className={`px-3 py-1 rounded-full text-sm flex items-center gap-1 ${
+                        className={`px-3 py-1 rounded-full text-sm flex items-center gap-1 transition-colors ${
                           isAdded
-                            ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                            : 'bg-blue-50 text-blue-700 hover:bg-blue-100'
+                            ? 'bg-slate-100 text-slate-400 dark:bg-slate-700 dark:text-slate-500 cursor-not-allowed'
+                            : 'bg-blue-50 text-blue-700 hover:bg-blue-100 dark:bg-blue-900/50 dark:text-blue-300 dark:hover:bg-blue-900'
                         }`}
                       >
                         {isAdded && <span>✓</span>}
@@ -196,12 +196,12 @@ export function SettingsDialog({ isOpen, onClose }: SettingsDialogProps) {
 
               {/* Current Relays List */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
                   Active Relays ({relays.length})
                 </label>
                 <div className="space-y-2">
                   {relays.length === 0 ? (
-                    <div className="text-center py-8 text-gray-500">
+                    <div className="text-center py-8 text-slate-500 dark:text-slate-400">
                       <p>No relays configured</p>
                       <p className="text-sm">Add at least one relay to fetch content</p>
                     </div>
@@ -209,14 +209,14 @@ export function SettingsDialog({ isOpen, onClose }: SettingsDialogProps) {
                     relays.map((relay) => (
                       <div
                         key={relay.url}
-                        className="flex items-center justify-between p-3 bg-gray-50 rounded-lg"
+                        className="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-700/50 rounded-lg"
                       >
                         <div className="flex-1">
-                          <div className="font-mono text-sm">{relay.url}</div>
+                          <div className="font-mono text-sm text-slate-800 dark:text-slate-200">{relay.url}</div>
                         </div>
                         <button
                           onClick={() => removeRelay(relay.url)}
-                          className="p-2 text-red-600 hover:bg-red-50 rounded-md transition-colors"
+                          className="p-2 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/50 rounded-md transition-colors"
                           title="Remove relay"
                         >
                           <span>🗑️</span>
@@ -229,12 +229,12 @@ export function SettingsDialog({ isOpen, onClose }: SettingsDialogProps) {
             </div>
 
             {/* Other Settings Can Go Here */}
-            <div className="pt-4 border-t">
-              <h3 className="text-lg font-semibold mb-2">About</h3>
-              <p className="text-sm text-gray-600">
+            <div className="pt-4 border-t border-slate-200 dark:border-slate-700">
+              <h3 className="text-lg font-semibold mb-2 text-slate-900 dark:text-slate-100">About</h3>
+              <p className="text-sm text-slate-600 dark:text-slate-400">
                 Nostr Feedz - A feed reader for RSS and Nostr long-form content (NIP-23)
               </p>
-              <p className="text-xs text-gray-500 mt-2">
+              <p className="text-xs text-slate-500 dark:text-slate-500 mt-2">
                 Changes to relays will be applied on next feed refresh
               </p>
             </div>
@@ -242,7 +242,7 @@ export function SettingsDialog({ isOpen, onClose }: SettingsDialogProps) {
         </div>
 
         {/* Footer */}
-        <div className="border-t p-6 bg-gray-50">
+        <div className="border-t border-slate-200 dark:border-slate-700 p-6 bg-slate-50 dark:bg-slate-800/50">
           <div className="flex justify-end gap-3">
             <button
               onClick={onClose}

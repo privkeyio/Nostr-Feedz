@@ -12,7 +12,7 @@ const handler = (req: NextRequest) => {
     router: appRouter,
     createContext: () => {
       // Extract Nostr pubkey from request headers
-      const nostrPubkey = req.headers.get('x-nostr-pubkey')
+      const nostrPubkey = req.headers.get('x-nostr-pubkey') || undefined
       
       console.log('🔍 tRPC createContext:', {
         hasNostrPubkey: !!nostrPubkey,

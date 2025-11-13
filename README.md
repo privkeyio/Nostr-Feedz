@@ -14,6 +14,8 @@ Nostr-Feedz is a full-stack web application built with Next.js that provides a u
 - Manual refresh or automatic feed updates
 - Remove feeds with one click
 - Unread count tracking per feed
+- **Tag/categorize feeds** for better organization
+- Filter feeds by tags with drill-down support
 
 ### Content Reading
 - Three-panel Google Reader-style interface
@@ -21,6 +23,13 @@ Nostr-Feedz is a full-stack web application built with Next.js that provides a u
 - Mark articles as read/unread
 - Full-screen article view with proper typography
 - Independent scrolling for feed list, article list, and content pane
+
+### Organization & Discovery
+- **Sidebar view toggle**: Switch between Feeds and Tags views
+- **Tag-based filtering**: Select one or more tags to filter feeds
+- **Unread counts per tag**: See total unread items for each category
+- **Feed counts per tag**: Track how many feeds belong to each tag
+- Smart tag management with visual pill interface
 
 ### Nostr Integration
 - Profile search across configured relays

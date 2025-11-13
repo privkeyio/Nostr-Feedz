@@ -5,13 +5,25 @@ import { getNostrFetcher, NostrFeedFetcher } from '@/lib/nostr-fetcher'
 import { discoverFeed } from '@/lib/feed-discovery'
 
 export const feedRouter = createTRPCRouter({
-  // Get all feeds for the current user
+    // Get all user feeds with unread counts
   getFeeds: protectedProcedure
-    .query(async ({ ctx }) => {
+    .input(z.object({
+      tags: z.array(z.string()).optional(),
+    }).optional())
+    .query(async ({ ctx, input }) => {
+      const whereClause: any = {
+        userPubkey: ctx.nostrPubkey,
+      }
+
+      // Filter by tags if provided
+      if (input?.tags && input.tags.length > 0) {
+        whereClause.tags = {
+          hasEvery: input.tags,
+        }
+      }
+
       const subscriptions = await ctx.db.subscription.findMany({
-        where: {
-          userPubkey: ctx.nostrPubkey,
-        },
+        where: whereClause,
         include: {
           feed: {
             include: {
@@ -41,6 +53,7 @@ export const feedRouter = createTRPCRouter({
         npub: sub.feed.npub,
         unreadCount: sub.feed._count.items,
         subscribedAt: sub.createdAt,
+        tags: sub.tags,
       }))
     }),
 
@@ -48,6 +61,7 @@ export const feedRouter = createTRPCRouter({
   getFeedItems: protectedProcedure
     .input(z.object({
       feedId: z.string().optional(),
+      feedIds: z.array(z.string()).optional(), // Array of feed IDs for tag filtering
       limit: z.number().min(1).max(100).default(50),
       cursor: z.string().optional(),
     }))
@@ -56,6 +70,11 @@ export const feedRouter = createTRPCRouter({
       
       if (input.feedId) {
         whereClause.feedId = input.feedId
+      } else if (input.feedIds && input.feedIds.length > 0) {
+        // When tags are selected, show items from specific feeds
+        whereClause.feedId = {
+          in: input.feedIds,
+        }
       } else {
         // Only show items from feeds the user is subscribed to
         const subscriptions = await ctx.db.subscription.findMany({
@@ -113,6 +132,7 @@ export const feedRouter = createTRPCRouter({
       url: z.string().optional(),
       npub: z.string().optional(),
       title: z.string().optional(),
+      tags: z.array(z.string()).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       // Validate input based on type
@@ -245,7 +265,7 @@ export const feedRouter = createTRPCRouter({
         feed = await ctx.db.feed.create({
           data: {
             type: input.type,
-            title: finalTitle,
+            title: finalTitle || 'Untitled Feed',
             url: feedUrl,
             npub: input.npub,
           },
@@ -327,6 +347,7 @@ export const feedRouter = createTRPCRouter({
         data: {
           userPubkey: ctx.nostrPubkey,
           feedId: feed.id,
+          tags: input.tags || [],
         },
       })
 
@@ -336,6 +357,7 @@ export const feedRouter = createTRPCRouter({
         type: feed.type,
         url: feed.url,
         npub: feed.npub,
+        tags: input.tags || [],
       }
     }),
 
@@ -355,6 +377,76 @@ export const feedRouter = createTRPCRouter({
       })
 
       return { success: true }
+    }),
+
+  // Update subscription tags
+  updateSubscriptionTags: protectedProcedure
+    .input(z.object({
+      feedId: z.string(),
+      tags: z.array(z.string()),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      await ctx.db.subscription.update({
+        where: {
+          userPubkey_feedId: {
+            userPubkey: ctx.nostrPubkey,
+            feedId: input.feedId,
+          },
+        },
+        data: {
+          tags: input.tags,
+        },
+      })
+
+      return { success: true }
+    }),
+
+  // Get all user tags with unread counts
+  getUserTags: protectedProcedure
+    .query(async ({ ctx }) => {
+      const subscriptions = await ctx.db.subscription.findMany({
+        where: {
+          userPubkey: ctx.nostrPubkey,
+        },
+        include: {
+          feed: {
+            include: {
+              items: {
+                where: {
+                  readItems: {
+                    none: {
+                      userPubkey: ctx.nostrPubkey,
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      })
+
+      // Aggregate tags with unread counts
+      const tagMap = new Map<string, { tag: string; unreadCount: number; feedCount: number }>()
+      
+      for (const sub of subscriptions) {
+        const unreadCount = sub.feed.items.length
+        
+        for (const tag of sub.tags) {
+          const existing = tagMap.get(tag)
+          if (existing) {
+            existing.unreadCount += unreadCount
+            existing.feedCount += 1
+          } else {
+            tagMap.set(tag, {
+              tag,
+              unreadCount,
+              feedCount: 1,
+            })
+          }
+        }
+      }
+
+      return Array.from(tagMap.values()).sort((a, b) => a.tag.localeCompare(b.tag))
     }),
 
   // Mark an item as read
@@ -430,7 +522,7 @@ export const feedRouter = createTRPCRouter({
       url: z.string().url(),
     }))
     .mutation(async ({ input }) => {
-      const feedUrls = await discoverFeedUrl(input.url)
+      const feedUrls = await discoverFeed(input.url)
       return { feedUrls }
     }),
 
