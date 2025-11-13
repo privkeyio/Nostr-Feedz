@@ -1,0 +1,139 @@
+'use client'
+
+import { useNostrAuth } from '@/contexts/NostrAuthContext'
+import { api } from '@/trpc/react'
+import { useState } from 'react'
+
+export function NostrFeed() {
+  const { isConnected, user, authMethod } = useNostrAuth()
+  const [newPost, setNewPost] = useState('')
+
+  // Query for getting all posts
+  const { data: posts, refetch } = api.post.getAll.useQuery()
+  
+  // Query for getting user's posts (only if authenticated)
+  const { data: userPosts } = api.post.getUserPosts.useQuery(undefined, {
+    enabled: isConnected && authMethod !== 'npub_password',
+  })
+
+  // Mutation for creating a new post
+  const createPost = api.post.create.useMutation({
+    onSuccess: () => {
+      setNewPost('')
+      refetch() // Refresh the feed
+    },
+  })
+
+  // Test query
+  const { data: helloMessage } = api.post.hello.useQuery({ text: 'Nostr World' })
+
+  if (!isConnected) {
+    return (
+      <div className="w-full max-w-2xl">
+        <div className="rounded-lg bg-gray-800/50 p-6 text-center">
+          <p className="text-gray-300">
+            Connect to Nostr to see your personalized feed
+          </p>
+        </div>
+      </div>
+    )
+  }
+
+  const canPost = authMethod === 'nip07' || authMethod === 'bunker'
+
+  return (
+    <div className="w-full max-w-2xl space-y-6">
+      {/* Test tRPC connection */}
+      {helloMessage && (
+        <div className="rounded-lg bg-green-600/20 border border-green-600/30 p-4">
+          <p className="text-green-400 text-sm">✅ tRPC Connected: {helloMessage.greeting}</p>
+        </div>
+      )}
+
+      {/* User info */}
+      <div className="rounded-lg bg-gray-800/50 p-4">
+        <h2 className="text-xl font-semibold text-white mb-2">Your Nostr Identity</h2>
+        <div className="space-y-2">
+          <p className="text-sm text-gray-300">
+            <span className="font-medium">Method:</span> {
+              authMethod === 'nip07' ? 'Browser Extension (Full Access)' :
+              authMethod === 'npub_password' ? 'npub + Password (Read Only)' :
+              authMethod === 'bunker' ? 'Bunker Signer' :
+              'Unknown'
+            }
+          </p>
+          <p className="text-xs text-gray-400 break-all">
+            <span className="font-medium">npub:</span> {user?.npub}
+          </p>
+          {authMethod === 'npub_password' && (
+            <p className="text-xs text-yellow-400">
+              ℹ️ Read-only mode: Install a Nostr extension or use bunker signer to post events
+            </p>
+          )}
+        </div>
+      </div>
+
+      {/* Create new post */}
+      {canPost && (
+        <div className="rounded-lg bg-gray-800/50 p-4">
+          <h3 className="text-lg font-medium text-white mb-3">Create Post</h3>
+          <div className="space-y-3">
+            <textarea
+              value={newPost}
+              onChange={(e) => setNewPost(e.target.value)}
+              placeholder="What's on your mind?"
+              className="w-full rounded-md bg-gray-700 px-3 py-2 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500 resize-none"
+              rows={3}
+            />
+            <button
+              onClick={() => createPost.mutate({ content: newPost })}
+              disabled={!newPost.trim() || createPost.isLoading}
+              className="rounded-lg bg-purple-600 px-4 py-2 font-semibold text-white hover:bg-purple-700 disabled:opacity-50 transition"
+            >
+              {createPost.isLoading ? 'Posting...' : 'Post'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* User's posts */}
+      {userPosts && userPosts.length > 0 && (
+        <div className="rounded-lg bg-gray-800/50 p-4">
+          <h3 className="text-lg font-medium text-white mb-3">Your Posts</h3>
+          <div className="space-y-3">
+            {userPosts.map((post) => (
+              <div key={post.id} className="rounded-md bg-gray-700/50 p-3">
+                <p className="text-gray-200">{post.content}</p>
+                <p className="text-xs text-gray-400 mt-2">
+                  {new Date(post.createdAt).toLocaleString()}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* All posts feed */}
+      <div className="rounded-lg bg-gray-800/50 p-4">
+        <h3 className="text-lg font-medium text-white mb-3">Recent Posts</h3>
+        {posts && posts.length > 0 ? (
+          <div className="space-y-3">
+            {posts.map((post) => (
+              <div key={post.id} className="rounded-md bg-gray-700/50 p-3">
+                <p className="text-gray-200">{post.content}</p>
+                <div className="flex justify-between items-center mt-2 text-xs text-gray-400">
+                  <span>By: {post.authorId.slice(0, 8)}...{post.authorId.slice(-8)}</span>
+                  <span>{new Date(post.createdAt).toLocaleString()}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="text-gray-400 text-center py-8">
+            No posts yet. Be the first to post! 
+          </p>
+        )}
+      </div>
+    </div>
+  )
+}

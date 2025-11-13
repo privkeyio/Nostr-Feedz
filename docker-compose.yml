@@ -1,0 +1,17 @@
+version: '3.8'
+services:
+  postgres:
+    image: postgres:15
+    container_name: nostr-feedz-db
+    environment:
+      POSTGRES_DB: nostr_feedz
+      POSTGRES_USER: nostr_user
+      POSTGRES_PASSWORD: nostr_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+volumes:
+  postgres_data:

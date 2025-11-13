@@ -1,0 +1,92 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+    provider = "prisma-client-js"
+}
+
+datasource db {
+    provider = "postgresql"
+    url      = env("DATABASE_URL")
+}
+
+// RSS Feed Sources
+model Feed {
+    id             String    @id @default(cuid())
+    type           FeedType  // RSS or NOSTR
+    url            String?   // RSS feed URL
+    npub           String?   // Nostr npub for NIP-23 subscriptions
+    title          String
+    description    String?
+    isActive       Boolean   @default(true)
+    lastFetchedAt  DateTime?
+    createdAt      DateTime  @default(now())
+    updatedAt      DateTime  @updatedAt
+    
+    // Relations
+    subscriptions Subscription[]
+    items         FeedItem[]
+    
+    @@unique([type, url])
+    @@unique([type, npub])
+    @@index([type, isActive])
+}
+
+model FeedItem {
+    id          String   @id @default(cuid())
+    feedId      String
+    title       String
+    content     String   @db.Text
+    url         String?
+    author      String?
+    publishedAt DateTime
+    guid        String?  // RSS guid or Nostr event id (optional)
+    createdAt   DateTime @default(now())
+    
+    // Relations
+    feed      Feed       @relation(fields: [feedId], references: [id], onDelete: Cascade)
+    readItems ReadItem[]
+    
+    @@unique([feedId, guid])
+    @@index([feedId, publishedAt])
+}
+
+model Subscription {
+    id         String   @id @default(cuid())
+    userPubkey String   // Nostr pubkey
+    feedId     String
+    createdAt  DateTime @default(now())
+    
+    // Relations  
+    feed Feed @relation(fields: [feedId], references: [id], onDelete: Cascade)
+    
+    @@unique([userPubkey, feedId])
+    @@index([userPubkey])
+}
+
+model ReadItem {
+    id         String   @id @default(cuid())
+    userPubkey String   // Nostr pubkey  
+    itemId     String
+    readAt     DateTime @default(now())
+    
+    // Relations
+    feedItem FeedItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+    
+    @@unique([userPubkey, itemId])
+    @@index([userPubkey])
+}
+
+model NostrRelay {
+    id        Int      @id @default(autoincrement())
+    url       String   @unique
+    name      String?
+    isActive  Boolean  @default(true)
+    createdAt DateTime @default(now())
+    updatedAt DateTime @updatedAt
+}
+
+enum FeedType {
+    RSS
+    NOSTR
+}
