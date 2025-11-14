@@ -29,6 +29,9 @@ export default function HomePage() {
           <p className="text-white text-lg">
             <span className="font-bold">7-day free trial</span> · Then $1.50/month
           </p>
+          <p className="text-sm text-purple-200 mt-1">
+            Pay with Bitcoin or fiat
+          </p>
         </div>
         <div className="max-w-2xl text-center">
           <p className="text-lg text-gray-300 mb-8">

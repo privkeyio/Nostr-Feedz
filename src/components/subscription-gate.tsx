@@ -43,6 +43,9 @@ export function SubscriptionGate({ children }: SubscriptionGateProps) {
                 $1.50<span className="text-2xl text-slate-600 dark:text-slate-400">/month</span>
               </div>
               <p className="text-slate-600 dark:text-slate-400">Unlimited RSS and Nostr feeds</p>
+              <p className="text-sm text-purple-600 dark:text-purple-400 mt-1 font-medium">
+                Pay with Bitcoin ₿ or fiat 💳
+              </p>
             </div>
 
             <ul className="space-y-3 mb-6">
@@ -117,7 +120,7 @@ export function SubscriptionGate({ children }: SubscriptionGateProps) {
                 onClick={() => window.location.href = process.env.NEXT_PUBLIC_SQUARE_PAYMENT_LINK || '#'}
                 className="ml-2 underline font-semibold hover:text-purple-200"
               >
-                Subscribe for $1.50/month
+                Subscribe for $1.50/month (Bitcoin ₿ or fiat 💳)
               </button>
             </>
           ) : (
