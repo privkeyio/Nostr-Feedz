@@ -119,9 +119,12 @@ export function AddFeedModal({ isOpen, onClose, onAddFeed, isLoading = false, er
       onAddFeed('RSS', rssUrl, undefined, undefined, tags)
     } else {
       const npub = manualNpub.trim()
-      if (!npub) return
+      if (!npub) {
+        setInternalError('Please enter an npub or select a user')
+        return
+      }
       if (!npub.startsWith('npub1')) {
-        alert('Invalid npub format. Must start with npub1')
+        setInternalError('Invalid npub format. Must start with npub1')
         return
       }
       onAddFeed('NOSTR', undefined, npub, undefined, tags)
@@ -130,10 +133,12 @@ export function AddFeedModal({ isOpen, onClose, onAddFeed, isLoading = false, er
   }
 
   const handleSelectProfile = (profile: NostrProfile) => {
+    console.log('🟢 Profile selected:', profile.name, 'npub:', profile.npub)
     setManualNpub(profile.npub)
     setShowManualInput(true)
     setNostrSearch('')
     setSearchResults([])
+    console.log('🟢 After selection - showManualInput should be true, manualNpub:', profile.npub)
   }
 
   const handleAddTag = () => {
@@ -190,7 +195,7 @@ export function AddFeedModal({ isOpen, onClose, onAddFeed, isLoading = false, er
                     : 'bg-slate-100 text-slate-700 border border-slate-300 dark:bg-slate-700 dark:text-slate-300 dark:border-slate-600'
                 }`}
               >
-                📰 RSS Feed
+                📰 RSS/YouTube Feed
               </button>
               <button
                 onClick={() => setFeedType('NOSTR')}
@@ -200,7 +205,7 @@ export function AddFeedModal({ isOpen, onClose, onAddFeed, isLoading = false, er
                     : 'bg-slate-100 text-slate-700 border border-slate-300 dark:bg-slate-700 dark:text-slate-300 dark:border-slate-600'
                 }`}
               >
-                ⚡ Nostr User
+                ⚡ Nostr (Articles & Videos)
               </button>
             </div>
           </div>
@@ -235,6 +240,11 @@ export function AddFeedModal({ isOpen, onClose, onAddFeed, isLoading = false, er
           {/* Nostr Profile Search */}
           {feedType === 'NOSTR' && (
             <div className="space-y-4">
+              {error && (
+                <div className="rounded-md bg-red-50 dark:bg-red-900/20 p-3 border border-red-200 dark:border-red-800">
+                  <p className="text-sm text-red-800 dark:text-red-300">{error}</p>
+                </div>
+              )}
               <div className="text-center p-3 bg-slate-100 dark:bg-slate-700/50 rounded-lg">
                 <p className="text-sm text-slate-600 dark:text-slate-300">
                   Looking for new content creators?{' '}
@@ -352,10 +362,16 @@ export function AddFeedModal({ isOpen, onClose, onAddFeed, isLoading = false, er
                   <div className="pt-4 border-t border-slate-200 dark:border-slate-700">
                     <button
                       onClick={() => setShowManualInput(true)}
-                      className="text-sm text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
+                      aria-label="Enter npub manually"
+                      className="w-full flex items-center justify-center space-x-2 px-3 py-2 bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 text-sm font-medium text-blue-700 dark:text-blue-200 rounded-md hover:bg-blue-100 dark:hover:bg-blue-800 transition"
                     >
-                      Or enter npub manually
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                        <path d="M2.003 5.884l8 4.8a1 1 0 0 0 .994 0l8-4.8A1 1 0 0 0 18 4H2a1 1 0 0 0 .003 1.884z" />
+                        <path d="M18 8.118l-8 4.8a3 3 0 0 1-2.994 0l-8-4.8V14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V8.118z" />
+                      </svg>
+                      <span>Enter npub manually</span>
                     </button>
+                    <p className="mt-1 text-xs text-slate-500 dark:text-slate-400 text-center">Paste an npub (npub1...) to add a Nostr user directly</p>
                   </div>
                 </>
               ) : (
@@ -368,10 +384,19 @@ export function AddFeedModal({ isOpen, onClose, onAddFeed, isLoading = false, er
                     <input
                       type="text"
                       value={manualNpub}
-                      onChange={(e) => setManualNpub(e.target.value)}
+                      onChange={(e) => {
+                        const value = e.target.value
+                        console.log('Npub input changed:', value)
+                        console.log('Starts with npub1?', value.startsWith('npub1'))
+                        setManualNpub(value)
+                        setInternalError('') // Clear errors when typing
+                      }}
                       placeholder="npub1..."
                       className="w-full px-3 py-2 bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-purple-500"
                     />
+                    <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                      Enter the full npub of the Nostr user you want to follow
+                    </p>
                   </div>
                   <button
                     onClick={() => {
@@ -440,13 +465,26 @@ export function AddFeedModal({ isOpen, onClose, onAddFeed, isLoading = false, er
             Cancel
           </button>
           <button
-            onClick={handleAddFeed}
+            onClick={() => {
+              console.log('🔵 Add Feed clicked - feedType:', feedType)
+              console.log('🔵 manualNpub:', manualNpub)
+              console.log('🔵 manualNpub.trim():', manualNpub.trim())
+              console.log('🔵 Starts with npub1?', manualNpub.startsWith('npub1'))
+              console.log('🔵 isLoading:', isLoading)
+              handleAddFeed()
+            }}
             disabled={
               isLoading || 
               (feedType === 'RSS' && !rssUrl.trim()) ||
-              (feedType === 'NOSTR' && !manualNpub.trim())
+              (feedType === 'NOSTR' && (!manualNpub.trim() || !manualNpub.startsWith('npub1')))
             }
-            className="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 rounded-md"
+            className="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 disabled:cursor-not-allowed rounded-md transition-colors"
+            title={
+              feedType === 'NOSTR' && !manualNpub.trim() ? 'Please enter an npub' :
+              feedType === 'NOSTR' && !manualNpub.startsWith('npub1') ? 'npub must start with npub1' :
+              feedType === 'RSS' && !rssUrl.trim() ? 'Please enter an RSS feed URL' :
+              undefined
+            }
           >
             {isLoading ? 'Adding...' : 'Add Feed'}
           </button>

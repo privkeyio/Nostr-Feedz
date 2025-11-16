@@ -10,6 +10,20 @@ export interface NostrLongFormPost {
   tags: string[]
 }
 
+export interface NostrVideoEvent {
+  id: string // event id
+  title: string
+  content: string // description/summary
+  author: string // npub
+  publishedAt: Date
+  videoUrl?: string // primary video URL
+  embedUrl?: string // embed-friendly URL
+  thumbnail?: string // preview image
+  duration?: number // in seconds
+  tags: string[]
+  kind: 21 | 22 // 21 = normal video, 22 = short-form portrait
+}
+
 // Default relays for fetching Nostr content
 const DEFAULT_RELAYS = [
   'wss://relay.damus.io',
@@ -109,6 +123,66 @@ export class NostrFeedFetcher {
     }
   }
 
+  // Extract metadata from NIP-71 video event
+  private parseNip71Event(event: Event): NostrVideoEvent {
+    const tags = event.tags
+    let title = ''
+    let publishedAt: Date | null = null
+    let videoUrl = ''
+    let thumbnail = ''
+    let duration: number | undefined
+    const topicTags: string[] = []
+
+    // Parse tags according to NIP-71
+    for (const tag of tags) {
+      switch (tag[0]) {
+        case 'title':
+          title = tag[1] || ''
+          break
+        case 'published_at':
+          if (tag[1]) {
+            publishedAt = new Date(parseInt(tag[1]) * 1000)
+          }
+          break
+        case 'imeta':
+          // Parse imeta tag for video metadata (NIP-92)
+          for (let i = 1; i < tag.length; i++) {
+            const param = tag[i]
+            if (param.startsWith('url ')) {
+              videoUrl = param.substring(4).trim()
+            } else if (param.startsWith('image ')) {
+              if (!thumbnail) { // Use first image as thumbnail
+                thumbnail = param.substring(6).trim()
+              }
+            } else if (param.startsWith('duration ')) {
+              duration = parseFloat(param.substring(9).trim())
+            }
+          }
+          break
+        case 't':
+          // topic tags
+          if (tag[1]) {
+            topicTags.push(tag[1])
+          }
+          break
+      }
+    }
+
+    return {
+      id: event.id,
+      title: title || 'Untitled Video',
+      content: event.content,
+      author: nip19.npubEncode(event.pubkey),
+      publishedAt: publishedAt || new Date(event.created_at * 1000),
+      videoUrl: videoUrl || undefined,
+      embedUrl: videoUrl || undefined, // Use same URL for embed
+      thumbnail: thumbnail || undefined,
+      duration,
+      tags: topicTags,
+      kind: event.kind as 21 | 22,
+    }
+  }
+
   // Fetch long-form posts from a specific npub
   async fetchLongFormPosts(npub: string, limit: number = 50, since?: Date): Promise<NostrLongFormPost[]> {
     try {
@@ -132,6 +206,32 @@ export class NostrFeedFetcher {
       return sortedEvents.map(event => this.parseNip23Event(event))
     } catch (error) {
       throw new Error(`Failed to fetch Nostr posts: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  // Fetch video events from a specific npub (NIP-71)
+  async fetchVideoEvents(npub: string, limit: number = 50, since?: Date): Promise<NostrVideoEvent[]> {
+    try {
+      const authorPubkey = this.npubToHex(npub)
+      
+      const filter: Filter = {
+        kinds: [21, 22], // NIP-71 video events (21 = normal, 22 = short-form)
+        authors: [authorPubkey],
+        limit,
+      }
+
+      if (since) {
+        filter.since = Math.floor(since.getTime() / 1000)
+      }
+
+      const events = await this.pool.querySync(this.relays, filter)
+      
+      // Sort by created_at descending (newest first)
+      const sortedEvents = events.sort((a, b) => b.created_at - a.created_at)
+      
+      return sortedEvents.map(event => this.parseNip71Event(event))
+    } catch (error) {
+      throw new Error(`Failed to fetch Nostr video events: ${error instanceof Error ? error.message : 'Unknown error'}`)
     }
   }
 
@@ -192,8 +292,8 @@ export class NostrFeedFetcher {
     }
   }
 
-  // Validate if an npub exists and has published long-form content
-  async validateNostrFeed(npub: string): Promise<{ valid: boolean; profile?: any; hasContent: boolean }> {
+  // Validate if an npub exists and has published long-form content or videos
+  async validateNostrFeed(npub: string): Promise<{ valid: boolean; profile?: any; hasContent: boolean; hasVideos?: boolean }> {
     try {
       const pubkey = this.npubToHex(npub)
       
@@ -201,24 +301,36 @@ export class NostrFeedFetcher {
       const profile = await this.getProfile(npub)
       
       // Check for any long-form content
-      const filter: Filter = {
+      const longFormFilter: Filter = {
         kinds: [30023],
         authors: [pubkey],
         limit: 1,
       }
 
-      const events = await this.pool.querySync(this.relays, filter)
-      const hasContent = events.length > 0
+      const longFormEvents = await this.pool.querySync(this.relays, longFormFilter)
+      const hasContent = longFormEvents.length > 0
+
+      // Check for any video content
+      const videoFilter: Filter = {
+        kinds: [21, 22],
+        authors: [pubkey],
+        limit: 1,
+      }
+
+      const videoEvents = await this.pool.querySync(this.relays, videoFilter)
+      const hasVideos = videoEvents.length > 0
 
       return {
         valid: true,
         profile,
-        hasContent,
+        hasContent: hasContent || hasVideos,
+        hasVideos,
       }
     } catch (error) {
       return {
         valid: false,
         hasContent: false,
+        hasVideos: false,
       }
     }
   }

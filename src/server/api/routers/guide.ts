@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { createTRPCRouter, publicProcedure, protectedProcedure } from '@/server/api/trpc'
 import { getNostrFetcher } from '@/lib/nostr-fetcher'
+import { nip19 } from 'nostr-tools'
 
 export const guideRouter = createTRPCRouter({
   // Get all guide feeds with optional tag filtering
@@ -63,7 +64,8 @@ export const guideRouter = createTRPCRouter({
     }),
 
   // Submit a new feed to the guide
-  submitFeed: protectedProcedure
+  // Allow anonymous submissions so people can add feeds without signing in
+  submitFeed: publicProcedure
     .input(z.object({
       npub: z.string().startsWith('npub1'),
       tags: z.array(z.string()).min(1).max(10),
@@ -108,7 +110,8 @@ export const guideRouter = createTRPCRouter({
           about: profile.about,
           picture: profile.picture,
           tags: input.tags,
-          submittedBy: ctx.nostrPubkey,
+          // Allow null for anonymous submissions
+          submittedBy: ctx.nostrPubkey ?? null,
           lastPublishedAt,
           postCount: posts.length,
         },
@@ -179,5 +182,62 @@ export const guideRouter = createTRPCRouter({
       })
 
       return { success: true, postCount: posts.length }
+    }),
+
+  // Update tags for own guide entry (user must be logged in as this npub)
+  updateOwnTags: protectedProcedure
+    .input(z.object({
+      tags: z.array(z.string()).min(1).max(10),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      // Convert hex pubkey to npub
+      const npub = nip19.npubEncode(ctx.nostrPubkey)
+      
+      const guideFeed = await ctx.db.guideFeed.findUnique({
+        where: { npub },
+      })
+
+      if (!guideFeed) {
+        throw new Error('You are not in the guide. Submit your profile first.')
+      }
+
+      await ctx.db.guideFeed.update({
+        where: { npub },
+        data: { tags: input.tags },
+      })
+
+      return { success: true, tags: input.tags }
+    }),
+
+  // Delete own guide entry (user must be logged in as this npub)
+  deleteOwnEntry: protectedProcedure
+    .mutation(async ({ ctx }) => {
+      // Convert hex pubkey to npub
+      const npub = nip19.npubEncode(ctx.nostrPubkey)
+      
+      const guideFeed = await ctx.db.guideFeed.findUnique({
+        where: { npub },
+      })
+
+      if (!guideFeed) {
+        throw new Error('You are not in the guide.')
+      }
+
+      await ctx.db.guideFeed.delete({
+        where: { npub },
+      })
+
+      return { success: true }
+    }),
+
+  // Get own guide entry (if exists)
+  getOwnEntry: protectedProcedure
+    .query(async ({ ctx }) => {
+      // Convert hex pubkey to npub
+      const npub = nip19.npubEncode(ctx.nostrPubkey)
+      
+      return await ctx.db.guideFeed.findUnique({
+        where: { npub },
+      })
     }),
 })

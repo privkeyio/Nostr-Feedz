@@ -3,6 +3,23 @@ import { createTRPCRouter, protectedProcedure } from '@/server/api/trpc'
 import { fetchAndParseFeed } from '@/lib/rss-parser'
 import { getNostrFetcher, NostrFeedFetcher } from '@/lib/nostr-fetcher'
 import { discoverFeed } from '@/lib/feed-discovery'
+import { FeedType } from '@prisma/client'
+import { nip19 } from 'nostr-tools'
+
+const NOSTR_VIEWER_BASE_URL = 'https://njump.me'
+
+const buildNostrOriginalUrl = (feedType: FeedType, guid?: string | null) => {
+  if (!guid) return undefined
+  if (feedType !== 'NOSTR' && feedType !== 'NOSTR_VIDEO') return undefined
+
+  try {
+    const nevent = nip19.neventEncode({ id: guid })
+    return `${NOSTR_VIEWER_BASE_URL}/${nevent}`
+  } catch (error) {
+    console.error('Failed to build Nostr original URL', { feedType, guid, error })
+    return undefined
+  }
+}
 
 export const feedRouter = createTRPCRouter({
     // Get all user feeds with unread counts
@@ -66,42 +83,80 @@ export const feedRouter = createTRPCRouter({
       cursor: z.string().optional(),
     }))
     .query(async ({ ctx, input }) => {
+      // Log raw input for debugging intermittent 500s
+      console.log('🔍 getFeedItems input (raw):', JSON.stringify(input))
+
       const whereClause: any = {}
-      
+
+      // Sanitize feedIds to guard against deserialization quirks (e.g. ['undefined'])
+      const sanitizedFeedIds = Array.isArray(input.feedIds)
+        ? input.feedIds.filter(id => !!id && typeof id === 'string' && id !== 'undefined')
+        : []
+
       if (input.feedId) {
         whereClause.feedId = input.feedId
-      } else if (input.feedIds && input.feedIds.length > 0) {
-        // When tags are selected, show items from specific feeds
-        whereClause.feedId = {
-          in: input.feedIds,
-        }
       } else {
-        // Only show items from feeds the user is subscribed to
-        const subscriptions = await ctx.db.subscription.findMany({
-          where: { userPubkey: ctx.nostrPubkey },
-          select: { feedId: true },
-        })
+        let derivedFeedIds: string[] = []
+
+        if (sanitizedFeedIds.length > 0) {
+          derivedFeedIds = sanitizedFeedIds
+        } else {
+          // Only show items from feeds the user is subscribed to
+          const subscriptions = await ctx.db.subscription.findMany({
+            where: { userPubkey: ctx.nostrPubkey },
+            select: { feedId: true },
+          })
+          derivedFeedIds = subscriptions.map(s => s.feedId)
+        }
+
+        if (derivedFeedIds.length === 0) {
+          console.warn('⚠️ No feed IDs available for user, returning empty feed list', {
+            user: ctx.nostrPubkey,
+            input,
+          })
+          return {
+            items: [],
+            nextCursor: undefined,
+          }
+        }
+
         whereClause.feedId = {
-          in: subscriptions.map(s => s.feedId),
+          in: derivedFeedIds,
         }
       }
 
-      const items = await ctx.db.feedItem.findMany({
-        where: whereClause,
-        include: {
-          feed: true,
-          readItems: {
-            where: {
-              userPubkey: ctx.nostrPubkey,
+      let items
+      try {
+        items = await ctx.db.feedItem.findMany({
+          where: whereClause,
+          include: {
+            feed: true,
+            readItems: {
+              where: {
+                userPubkey: ctx.nostrPubkey,
+              },
+            },
+            favorites: {
+              where: {
+                userPubkey: ctx.nostrPubkey,
+              },
             },
           },
-        },
-        orderBy: {
-          publishedAt: 'desc',
-        },
-        take: input.limit + 1,
-        cursor: input.cursor ? { id: input.cursor } : undefined,
-      })
+          orderBy: {
+            publishedAt: 'desc',
+          },
+          take: input.limit + 1,
+          cursor: input.cursor ? { id: input.cursor } : undefined,
+        })
+      } catch (error) {
+        console.error('❌ Error querying feed items:', {
+          user: ctx.nostrPubkey,
+          whereClause,
+          input,
+          error,
+        })
+        throw error
+      }
 
       let nextCursor: string | undefined = undefined
       if (items.length > input.limit) {
@@ -109,19 +164,43 @@ export const feedRouter = createTRPCRouter({
         nextCursor = nextItem!.id
       }
 
-      return {
-        items: items.map(item => ({
-          id: item.id,
-          title: item.title,
-          content: item.content,
-          author: item.author,
-          publishedAt: item.publishedAt,
-          url: item.url,
-          isRead: item.readItems.length > 0,
-          feedTitle: item.feed.title,
-          feedType: item.feed.type,
-        })),
-        nextCursor,
+      try {
+        const mappedItems = items.map(item => {
+          const originalUrl = buildNostrOriginalUrl(item.feed.type, item.guid) ?? item.url ?? undefined
+
+          return {
+            id: item.id,
+            title: item.title,
+            content: item.content,
+            author: item.author,
+            publishedAt: item.publishedAt,
+            url: item.url,
+            originalUrl,
+            videoId: item.videoId,
+            embedUrl: item.embedUrl,
+            thumbnail: item.thumbnail,
+            isRead: item.readItems.length > 0,
+            isFavorited: item.favorites.length > 0,
+            feedTitle: item.feed.title,
+            feedType: item.feed.type,
+          }
+        })
+
+        return {
+          items: mappedItems,
+          nextCursor,
+        }
+      } catch (error) {
+        console.error('❌ Error mapping feed items:', error)
+        console.error('Items count:', items.length)
+        console.error('Sample item:', items[0] ? JSON.stringify({
+          id: items[0].id,
+          hasReadItems: !!items[0].readItems,
+          hasFavorites: !!items[0].favorites,
+          hasFeed: !!items[0].feed,
+          feedType: items[0].feed?.type
+        }) : 'no items')
+        throw error
       }
     }),
 
@@ -147,16 +226,29 @@ export const feedRouter = createTRPCRouter({
       let feedTitle = input.title
 
       // For RSS feeds, try to discover the actual feed URL
-      if (input.type === 'RSS' && input.url) {
-        console.log('Discovering feed at:', input.url)
-        const discovery = await discoverFeed(input.url)
+      if (input.type === 'RSS' && feedUrl) {
+        console.log('Discovering feed at:', feedUrl)
+        const discovery = await discoverFeed(feedUrl)
         
         if (!discovery.found) {
           throw new Error(discovery.error || 'Could not find a valid RSS or Atom feed at this URL. Please check the URL and try again.')
         }
         
         feedUrl = discovery.feedUrl
-        feedTitle = discovery.title || input.title || new URL(discovery.feedUrl!).hostname
+        
+        // If discovery didn't find a proper title (or just found generic "RSS"), parse the feed
+        if (!discovery.title || discovery.title.toLowerCase() === 'rss' || discovery.title.toLowerCase() === 'atom') {
+          try {
+            const parsedFeed = await fetchAndParseFeed(discovery.feedUrl!)
+            feedTitle = parsedFeed.title || input.title || new URL(discovery.feedUrl!).hostname
+          } catch (error) {
+            console.error('Error parsing feed for title:', error)
+            feedTitle = input.title || new URL(discovery.feedUrl!).hostname
+          }
+        } else {
+          feedTitle = discovery.title || input.title || new URL(discovery.feedUrl!).hostname
+        }
+        
         console.log('Feed discovered:', { feedUrl, feedTitle, type: discovery.type })
       }
 
@@ -174,11 +266,13 @@ export const feedRouter = createTRPCRouter({
           where: {
             type: 'NOSTR', 
             npub: input.npub,
+            title: { not: { endsWith: '(Videos)' } }, // Exclude video feeds
           },
         })
       }
 
       let feed
+      let mainFeedHasVideos = false
       if (existingFeed) {
         feed = existingFeed
         
@@ -207,6 +301,8 @@ export const feedRouter = createTRPCRouter({
               
               for (const item of parsedFeed.items) {
                 try {
+                  // Mark if this feed contains video items
+                  if (item.videoId || item.embedUrl) mainFeedHasVideos = true
                   await ctx.db.feedItem.create({
                     data: {
                       feedId: feed.id,
@@ -216,6 +312,9 @@ export const feedRouter = createTRPCRouter({
                       publishedAt: item.publishedAt,
                       url: item.url,
                       guid: item.guid,
+                      videoId: item.videoId,
+                      embedUrl: item.embedUrl,
+                      thumbnail: item.thumbnail,
                     },
                   })
                 } catch (error) {
@@ -227,11 +326,15 @@ export const feedRouter = createTRPCRouter({
             }
           }
           
-          // For Nostr feeds with no items
+          // For existing Nostr article feeds with no items: fetch posts and ensure video feed exists
           if (feed.type === 'NOSTR' && feed.npub) {
             const nostrFetcher = getNostrFetcher()
-            const posts = await nostrFetcher.fetchLongFormPosts(feed.npub, 50)
-            
+            const [posts, videos] = await Promise.all([
+              nostrFetcher.fetchLongFormPosts(feed.npub, 50),
+              nostrFetcher.fetchVideoEvents(feed.npub, 50),
+            ])
+
+            // Add long-form posts to the article feed
             for (const post of posts) {
               try {
                 await ctx.db.feedItem.create({
@@ -249,19 +352,66 @@ export const feedRouter = createTRPCRouter({
                 console.error('Error adding Nostr post:', error)
               }
             }
+
+            // Ensure separate video feed exists and add videos there
+            if (videos.length > 0) {
+              let videoFeed = await ctx.db.feed.findFirst({
+                where: { type: 'NOSTR_VIDEO' as const, npub: feed.npub },
+              })
+
+              if (!videoFeed) {
+                try {
+                  videoFeed = await ctx.db.feed.create({
+                    data: {
+                      type: 'NOSTR_VIDEO' as const,
+                      title: `${feed.title} (Videos)`,
+                      npub: feed.npub,
+                    },
+                  })
+                } catch (error) {
+                  console.error('Error creating video feed for npub:', error)
+                }
+              }
+
+              if (videoFeed) {
+                for (const video of videos) {
+                  try {
+                    await ctx.db.feedItem.create({
+                      data: {
+                        feedId: videoFeed.id,
+                        title: video.title,
+                        content: video.content,
+                        author: video.author,
+                        publishedAt: video.publishedAt,
+                        url: video.videoUrl,
+                        guid: video.id,
+                        embedUrl: video.embedUrl,
+                        thumbnail: video.thumbnail,
+                      },
+                    })
+                  } catch (error) {
+                    console.error('Error adding Nostr video:', error)
+                  }
+                }
+              }
+            }
           }
         }
       } else {
         // For Nostr feeds, fetch profile info to get the display name
         let finalTitle = feedTitle
+        let videoFeedTitle = feedTitle
         if (input.type === 'NOSTR' && input.npub) {
           const nostrFetcher = getNostrFetcher()
           const profile = await nostrFetcher.getProfile(input.npub)
-          finalTitle = profile?.name || `${input.npub.slice(0, 16)}...`
+          const displayName = profile?.name || `${input.npub.slice(0, 16)}...`
+          finalTitle = displayName
+          videoFeedTitle = `${displayName} (Videos)`
         } else if (input.type === 'RSS') {
           finalTitle = feedTitle || new URL(feedUrl!).hostname
         }
 
+        // Create main feed (articles for Nostr, all content for RSS)
         feed = await ctx.db.feed.create({
           data: {
             type: input.type,
@@ -279,6 +429,7 @@ export const feedRouter = createTRPCRouter({
             // Add items to database
             for (const item of parsedFeed.items) {
               try {
+                if (item.videoId || item.embedUrl) mainFeedHasVideos = true
                 await ctx.db.feedItem.create({
                   data: {
                     feedId: feed.id,
@@ -288,6 +439,9 @@ export const feedRouter = createTRPCRouter({
                     publishedAt: item.publishedAt,
                     url: item.url,
                     guid: item.guid,
+                    videoId: item.videoId,
+                    embedUrl: item.embedUrl,
+                    thumbnail: item.thumbnail,
                   },
                 })
               } catch (error) {
@@ -301,12 +455,17 @@ export const feedRouter = createTRPCRouter({
           }
         }
         
-        // For Nostr feeds, immediately fetch initial posts
+        // For Nostr feeds, immediately fetch initial posts and videos
         if (input.type === 'NOSTR' && input.npub) {
           const nostrFetcher = getNostrFetcher()
-          const posts = await nostrFetcher.fetchLongFormPosts(input.npub, 50)
           
-          // Add posts to database
+          // Fetch both long-form posts and video events
+          const [posts, videos] = await Promise.all([
+            nostrFetcher.fetchLongFormPosts(input.npub, 50),
+            nostrFetcher.fetchVideoEvents(input.npub, 50),
+          ])
+          
+          // Add long-form posts to main feed
           for (const post of posts) {
             try {
               await ctx.db.feedItem.create({
@@ -325,10 +484,58 @@ export const feedRouter = createTRPCRouter({
               // Continue with other posts
             }
           }
+          
+          // If there are videos, create a separate video feed
+          let videoFeed = null
+          if (videos.length > 0) {
+            // Check if video feed already exists
+            const existingVideoFeed = await ctx.db.feed.findFirst({
+              where: {
+                type: 'NOSTR_VIDEO' as const,
+                npub: input.npub,
+                title: { endsWith: '(Videos)' },
+              },
+            })
+            
+            if (existingVideoFeed) {
+              videoFeed = existingVideoFeed
+            } else {
+              // Create separate video feed
+              videoFeed = await ctx.db.feed.create({
+                data: {
+                  type: 'NOSTR_VIDEO' as const,
+                  title: videoFeedTitle || `${finalTitle} (Videos)`,
+                  npub: input.npub,
+                },
+              })
+            }
+            
+            // Add video events to video feed
+            for (const video of videos) {
+              try {
+                await ctx.db.feedItem.create({
+                  data: {
+                    feedId: videoFeed.id,
+                    title: video.title,
+                    content: video.content,
+                    author: video.author,
+                    publishedAt: video.publishedAt,
+                    url: video.videoUrl,
+                    guid: video.id,
+                    embedUrl: video.embedUrl,
+                    thumbnail: video.thumbnail,
+                  },
+                })
+              } catch (error) {
+                console.error('Error adding Nostr video:', error)
+                // Continue with other videos
+              }
+            }
+          }
         }
       }
 
-      // Check if user is already subscribed
+      // Check if user is already subscribed to the main feed
       const existingSubscription = await ctx.db.subscription.findUnique({
         where: {
           userPubkey_feedId: {
@@ -339,17 +546,61 @@ export const feedRouter = createTRPCRouter({
       })
 
       if (existingSubscription) {
-        throw new Error('Already subscribed to this feed')
+        // If already subscribed, just return the feed info without error
+        return {
+          id: feed.id,
+          title: feed.title,
+          type: feed.type,
+          url: feed.url,
+          npub: feed.npub,
+          tags: existingSubscription.tags || [],
+        }
       }
 
-      // Create subscription
+      // Create subscription for main feed
+      const subscriptionTags = (input.tags || []).concat(mainFeedHasVideos ? ['video'] : [])
       await ctx.db.subscription.create({
         data: {
           userPubkey: ctx.nostrPubkey,
           feedId: feed.id,
-          tags: input.tags || [],
+          tags: subscriptionTags,
         },
       })
+      
+      // If this is a Nostr feed with videos, also subscribe to video feed
+      if (input.type === 'NOSTR' && input.npub) {
+        const videoFeed = await ctx.db.feed.findFirst({
+          where: {
+            type: 'NOSTR_VIDEO' as const,
+            npub: input.npub,
+            title: { endsWith: '(Videos)' },
+          },
+        })
+        
+        if (videoFeed) {
+          // Check if already subscribed to video feed
+          const existingVideoSub = await ctx.db.subscription.findUnique({
+            where: {
+              userPubkey_feedId: {
+                userPubkey: ctx.nostrPubkey,
+                feedId: videoFeed.id,
+              },
+            },
+          })
+          
+          if (!existingVideoSub) {
+            // Auto-tag video feed with 'video' tag plus user's tags
+            const videoTags = [...(input.tags || []), 'video']
+            await ctx.db.subscription.create({
+              data: {
+                userPubkey: ctx.nostrPubkey,
+                feedId: videoFeed.id,
+                tags: videoTags,
+              },
+            })
+          }
+        }
+      }
 
       return {
         id: feed.id,
@@ -488,6 +739,93 @@ export const feedRouter = createTRPCRouter({
       })
 
       return { success: true }
+    }),
+
+  // Add item to favorites
+  addFavorite: protectedProcedure
+    .input(z.object({
+      itemId: z.string(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      await ctx.db.favorite.create({
+        data: {
+          userPubkey: ctx.nostrPubkey,
+          itemId: input.itemId,
+        },
+      })
+
+      return { success: true }
+    }),
+
+  // Remove item from favorites
+  removeFavorite: protectedProcedure
+    .input(z.object({
+      itemId: z.string(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      await ctx.db.favorite.delete({
+        where: {
+          userPubkey_itemId: {
+            userPubkey: ctx.nostrPubkey,
+            itemId: input.itemId,
+          },
+        },
+      })
+
+      return { success: true }
+    }),
+
+  // Get all favorited items
+  getFavorites: protectedProcedure
+    .input(z.object({
+      limit: z.number().min(1).max(100).default(50),
+      cursor: z.string().optional(),
+    }))
+    .query(async ({ ctx, input }) => {
+      const favorites = await ctx.db.favorite.findMany({
+        where: {
+          userPubkey: ctx.nostrPubkey,
+        },
+        include: {
+          feedItem: {
+            include: {
+              feed: true,
+            },
+          },
+        },
+        orderBy: {
+          createdAt: 'desc',
+        },
+        take: input.limit + 1,
+        cursor: input.cursor ? { id: input.cursor } : undefined,
+      })
+
+      let nextCursor: string | undefined = undefined
+      if (favorites.length > input.limit) {
+        const nextItem = favorites.pop()
+        nextCursor = nextItem!.id
+      }
+
+      return {
+        items: favorites.map(fav => ({
+          id: fav.feedItem.id,
+          title: fav.feedItem.title,
+          content: fav.feedItem.content,
+          author: fav.feedItem.author,
+          publishedAt: fav.feedItem.publishedAt,
+          url: fav.feedItem.url,
+          originalUrl: buildNostrOriginalUrl(fav.feedItem.feed.type, fav.feedItem.guid) ?? fav.feedItem.url ?? undefined,
+          videoId: fav.feedItem.videoId,
+          embedUrl: fav.feedItem.embedUrl,
+          thumbnail: fav.feedItem.thumbnail,
+          isRead: true, // Favorites are typically already read
+          isFavorited: true,
+          feedTitle: fav.feedItem.feed.title,
+          feedType: fav.feedItem.feed.type,
+          favoritedAt: fav.createdAt,
+        })),
+        nextCursor,
+      }
     }),
 
   // Mark all items in a feed as read
@@ -656,7 +994,7 @@ export const feedRouter = createTRPCRouter({
       }
     }),
 
-  // Refresh Nostr feed (fetch new long-form posts)
+  // Refresh Nostr feed (fetch new long-form posts and videos)
   refreshNostrFeed: protectedProcedure
     .input(z.object({
       feedId: z.string(),
@@ -670,19 +1008,23 @@ export const feedRouter = createTRPCRouter({
         throw new Error('Feed not found')
       }
 
-      if (feed.type !== 'NOSTR' || !feed.npub) {
+      if ((feed.type !== 'NOSTR' && feed.type !== 'NOSTR_VIDEO') || !feed.npub) {
         throw new Error('Only Nostr feeds can be refreshed with this method')
       }
 
       const nostrFetcher = getNostrFetcher()
-      
-      // Get the last fetch time to only get new posts
+
+      // Get the last fetch time to only get new content
       const lastFetched = feed.lastFetchedAt
-      const posts = await nostrFetcher.fetchLongFormPosts(
-        feed.npub,
-        50,
-        lastFetched || undefined
-      )
+
+      // Decide what to fetch based on feed type
+      let posts: any[] = []
+      let videos: any[] = []
+      if (feed.type === 'NOSTR') {
+        posts = await nostrFetcher.fetchLongFormPosts(feed.npub, 50, lastFetched || undefined)
+      } else if (feed.type === 'NOSTR_VIDEO') {
+        videos = await nostrFetcher.fetchVideoEvents(feed.npub, 50, lastFetched || undefined)
+      }
 
       // Update feed last fetched time
       await ctx.db.feed.update({
@@ -692,7 +1034,7 @@ export const feedRouter = createTRPCRouter({
         },
       })
 
-      // Add new posts to database
+      // Add new long-form posts to database
       let newItemsCount = 0
       for (const post of posts) {
         try {
@@ -724,10 +1066,43 @@ export const feedRouter = createTRPCRouter({
         }
       }
 
+      // Add new video events to database
+      for (const video of videos) {
+        try {
+          // Check if video already exists by Nostr event ID
+          const existingItem = await ctx.db.feedItem.findFirst({
+            where: {
+              feedId: feed.id,
+              guid: video.id, // Nostr event ID as GUID
+            },
+          })
+
+          if (!existingItem) {
+            await ctx.db.feedItem.create({
+              data: {
+                feedId: feed.id,
+                title: video.title,
+                content: video.content,
+                author: video.author,
+                publishedAt: video.publishedAt,
+                url: video.videoUrl,
+                guid: video.id, // Nostr event ID
+                embedUrl: video.embedUrl,
+                thumbnail: video.thumbnail,
+              },
+            })
+            newItemsCount++
+          }
+        } catch (error) {
+          console.error('Error adding Nostr video item:', error)
+          // Continue processing other items
+        }
+      }
+
       return {
         success: true,
         newItemsCount,
-        totalItems: posts.length,
+        totalItems: posts.length + videos.length,
       }
     }),
 

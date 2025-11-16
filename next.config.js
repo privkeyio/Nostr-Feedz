@@ -8,6 +8,7 @@ const withPWA = require('next-pwa')({
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   serverExternalPackages: ['@prisma/client'],
+  output: 'standalone',
   images: {
     remotePatterns: [
       {

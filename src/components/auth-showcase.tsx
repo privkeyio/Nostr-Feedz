@@ -6,10 +6,9 @@ import { useState } from 'react'
 export function AuthShowcase() {
   const { isConnected, user, authMethod, connect, disconnect } = useNostrAuth()
   const [showLoginForm, setShowLoginForm] = useState(false)
-  const [loginMethod, setLoginMethod] = useState<'nip07' | 'npub_password' | 'bunker' | null>(null)
+  const [loginMethod, setLoginMethod] = useState<'nip07' | 'npub_password' | null>(null)
   const [npub, setNpub] = useState('')
   const [password, setPassword] = useState('')
-  const [bunkerUrl, setBunkerUrl] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
@@ -24,8 +23,6 @@ export function AuthShowcase() {
         await connect('nip07')
       } else if (loginMethod === 'npub_password') {
         await connect('npub_password', { npub, password })
-      } else if (loginMethod === 'bunker') {
-        await connect('bunker', { bunkerUrl })
       }
       setShowLoginForm(false)
     } catch (err) {
@@ -43,9 +40,7 @@ export function AuthShowcase() {
             ⚡ Connected to Nostr
           </p>
           <p className="text-sm text-gray-300">
-            Method: {authMethod === 'nip07' ? 'Browser Extension' : 
-                    authMethod === 'npub_password' ? 'npub + Password (Read-only)' : 
-                    'Bunker Signer'}
+            Method: {authMethod === 'nip07' ? 'Browser Extension' : 'npub + Password (Read-only)'}
           </p>
           <div className="mt-4 p-3 bg-gray-800/50 rounded-lg">
             <p className="text-xs text-gray-400 mb-1">Your npub:</p>
@@ -92,17 +87,7 @@ export function AuthShowcase() {
             }}
             className="rounded-lg bg-blue-600/20 px-6 py-3 font-semibold text-blue-400 hover:bg-blue-600/30 transition"
           >
-            👤 npub + Password
-          </button>
-          
-          <button
-            onClick={() => {
-              setLoginMethod('bunker')
-              setShowLoginForm(true)
-            }}
-            className="rounded-lg bg-green-600/20 px-6 py-3 font-semibold text-green-400 hover:bg-green-600/30 transition"
-          >
-            🏛️ Bunker Signer (NIP-46)
+            👤 npub + Password (Read-only)
           </button>
         </div>
       </div>
@@ -112,9 +97,7 @@ export function AuthShowcase() {
   return (
     <div className="flex flex-col items-center justify-center gap-4 w-full max-w-md">
       <p className="text-center text-2xl text-white mb-4">
-        {loginMethod === 'nip07' ? '🔌 Browser Extension' :
-         loginMethod === 'npub_password' ? '👤 npub + Password' :
-         '🏛️ Bunker Signer'}
+        {loginMethod === 'nip07' ? '🔌 Browser Extension' : '👤 npub + Password'}
       </p>
 
       {error && (
@@ -126,7 +109,7 @@ export function AuthShowcase() {
       {loginMethod === 'nip07' && (
         <div className="w-full p-4 bg-gray-800/50 rounded-lg">
           <p className="text-gray-300 text-sm mb-4">
-            This will connect using your Nostr browser extension (like Alby, nos2x, or Flamingo).
+            This will connect using your Nostr browser extension (like Alby, nos2x, or Amber).
           </p>
           <button
             onClick={handleConnect}
@@ -174,35 +157,6 @@ export function AuthShowcase() {
               className="w-full rounded-lg bg-blue-600 px-4 py-2 font-semibold text-white hover:bg-blue-700 disabled:opacity-50 transition"
             >
               {loading ? 'Connecting...' : 'Connect'}
-            </button>
-          </div>
-        </div>
-      )}
-
-      {loginMethod === 'bunker' && (
-        <div className="w-full p-4 bg-gray-800/50 rounded-lg">
-          <p className="text-gray-300 text-sm mb-4">
-            Connect to a remote bunker signer (NIP-46) for secure key management.
-          </p>
-          <div className="space-y-3">
-            <div>
-              <label className="block text-sm font-medium text-gray-300 mb-1">
-                Bunker URL
-              </label>
-              <input
-                type="text"
-                value={bunkerUrl}
-                onChange={(e) => setBunkerUrl(e.target.value)}
-                placeholder="wss://..."
-                className="w-full rounded-md bg-gray-700 px-3 py-2 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-green-500"
-              />
-            </div>
-            <button
-              onClick={handleConnect}
-              disabled={loading || !bunkerUrl}
-              className="w-full rounded-lg bg-green-600 px-4 py-2 font-semibold text-white hover:bg-green-700 disabled:opacity-50 transition"
-            >
-              {loading ? 'Connecting...' : 'Connect Bunker'}
             </button>
           </div>
         </div>

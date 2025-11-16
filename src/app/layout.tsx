@@ -3,6 +3,7 @@ import { Inter } from 'next/font/google'
 import { TRPCReactProvider } from '@/trpc/react'
 import { NostrAuthProvider } from '@/contexts/NostrAuthContext'
 import { ThemeProvider } from '@/contexts/ThemeContext'
+import { Footer } from '@/components/footer'
 
 const inter = Inter({ subsets: ['latin'] })
 
@@ -36,10 +37,15 @@ export default function RootLayout({
         <link rel="apple-touch-icon" href="/icon-192.png" />
         <meta name="theme-color" content="#3B82F6" />
       </head>
-      <body className={inter.className}>
+      <body className={`${inter.className} flex flex-col min-h-screen`}>
         <ThemeProvider>
           <NostrAuthProvider>
-            <TRPCReactProvider>{children}</TRPCReactProvider>
+            <TRPCReactProvider>
+              <div className="flex-1">
+                {children}
+              </div>
+              <Footer />
+            </TRPCReactProvider>
           </NostrAuthProvider>
         </ThemeProvider>
       </body>

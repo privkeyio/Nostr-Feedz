@@ -13,6 +13,7 @@ export default function SubmitToGuidePage() {
   const [tags, setTags] = useState<string[]>([]);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
+  const [showLoginPrompt, setShowLoginPrompt] = useState(false);
 
   const router = useRouter();
   const submitMutation = api.guide.submitFeed.useMutation();
@@ -59,36 +60,18 @@ export default function SubmitToGuidePage() {
     }
   };
 
-  if (!isConnected) {
-    return (
-      <main className="flex min-h-screen flex-col items-center justify-center bg-slate-100 dark:bg-slate-900 text-slate-900 dark:text-slate-200 p-4 md:p-8">
-        <div className="w-full max-w-2xl bg-white dark:bg-slate-800 rounded-lg shadow-lg p-6 md:p-8">
-          <h1 className="text-3xl font-bold mb-4 text-center">Submit to Guide</h1>
-          <div className="text-center">
-            <p className="text-slate-600 dark:text-slate-400 mb-4">
-              You need to be signed in to submit a feed to the guide.
-            </p>
-            <Link href="/reader" className="bg-blue-600 text-white font-semibold py-2 px-4 rounded-md hover:bg-blue-700">
-              Sign In
-            </Link>
-          </div>
-        </div>
-      </main>
-    );
-  }
-
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center bg-slate-100 dark:bg-slate-900 text-slate-900 dark:text-slate-200 p-4 md:p-8">
-      <div className="w-full max-w-2xl bg-white dark:bg-slate-800 rounded-lg shadow-lg p-6 md:p-8">
+    <main className="flex min-h-screen flex-col items-center justify-center bg-gradient-to-b from-[#2e026d] to-[#15162c] text-white p-4 md:p-8">
+      <div className="w-full max-w-2xl bg-white/10 backdrop-blur-sm rounded-lg shadow-lg p-6 md:p-8 border border-purple-400/30">
         <h1 className="text-3xl font-bold mb-4 text-center">Submit Feed to Guide</h1>
-        <p className="text-center text-slate-600 dark:text-slate-400 mb-8">
+        <p className="text-center text-purple-200 mb-8">
           Add a Nostr user with long-form content to the public guide directory
         </p>
 
         <form onSubmit={handleSubmit} className="space-y-6">
           <div>
-            <label htmlFor="npub" className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
-              Nostr Public Key (npub) <span className="text-red-500">*</span>
+            <label htmlFor="npub" className="block text-sm font-medium text-white mb-1">
+              Nostr Public Key (npub) <span className="text-pink-400">*</span>
             </label>
             <input
               type="text"
@@ -97,17 +80,17 @@ export default function SubmitToGuidePage() {
               value={npub}
               onChange={(e) => setNpub(e.target.value)}
               placeholder="npub1..."
-              className="w-full px-4 py-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-4 py-2 bg-white/20 border border-purple-400/50 text-white placeholder-purple-200/50 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-400 backdrop-blur-sm"
               disabled={submitMutation.isPending}
             />
-            <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
+            <p className="text-sm text-purple-200 mt-1">
               This user must have published long-form content (NIP-23).
             </p>
           </div>
 
           <div>
-            <label htmlFor="tags" className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
-              Tags <span className="text-red-500">*</span> (1-10 tags)
+            <label htmlFor="tags" className="block text-sm font-medium text-white mb-1">
+              Tags <span className="text-pink-400">*</span> (1-10 tags)
             </label>
             <div className="flex gap-2">
               <input
@@ -123,13 +106,13 @@ export default function SubmitToGuidePage() {
                   }
                 }}
                 placeholder="e.g., bitcoin, philosophy, technology"
-                className="flex-1 px-4 py-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="flex-1 px-4 py-2 bg-white/20 border border-purple-400/50 text-white placeholder-purple-200/50 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-400 backdrop-blur-sm"
                 disabled={submitMutation.isPending || tags.length >= 10}
               />
               <button
                 type="button"
                 onClick={handleAddTag}
-                className="px-4 py-2 bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-slate-200 font-semibold rounded-md hover:bg-slate-300 dark:hover:bg-slate-600 disabled:opacity-50"
+                className="px-4 py-2 bg-white/20 text-white font-semibold rounded-md hover:bg-white/30 disabled:opacity-50 border border-purple-400/50"
                 disabled={submitMutation.isPending || tags.length >= 10 || !tagInput.trim()}
               >
                 Add
@@ -141,13 +124,13 @@ export default function SubmitToGuidePage() {
                 {tags.map((tag) => (
                   <span
                     key={tag}
-                    className="inline-flex items-center gap-2 px-3 py-1 bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-200 rounded-full text-sm"
+                    className="inline-flex items-center gap-2 px-3 py-1 bg-purple-500/30 text-purple-100 rounded-full text-sm border border-purple-400/50"
                   >
                     {tag}
                     <button
                       type="button"
                       onClick={() => handleRemoveTag(tag)}
-                      className="text-blue-600 dark:text-blue-300 hover:text-blue-800 dark:hover:text-blue-100"
+                      className="text-purple-200 hover:text-white"
                       disabled={submitMutation.isPending}
                     >
                       ×
@@ -156,19 +139,19 @@ export default function SubmitToGuidePage() {
                 ))}
               </div>
             )}
-            <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
+            <p className="text-sm text-purple-200 mt-1">
               Add relevant topic tags to help people discover this feed.
             </p>
           </div>
 
           {error && (
-            <div className="p-4 bg-red-100 dark:bg-red-900/30 border border-red-300 dark:border-red-700 rounded-md text-red-800 dark:text-red-200">
+            <div className="p-4 bg-red-500/20 border border-red-400/50 rounded-md text-red-200">
               <p>{error}</p>
             </div>
           )}
 
           {success && (
-            <div className="p-4 bg-green-100 dark:bg-green-900/30 border border-green-300 dark:border-green-700 rounded-md text-green-800 dark:text-green-200">
+            <div className="p-4 bg-green-500/20 border border-green-400/50 rounded-md text-green-200">
               <p>Feed successfully submitted to the guide! Redirecting...</p>
             </div>
           )}
@@ -176,14 +159,14 @@ export default function SubmitToGuidePage() {
           <button
             type="submit"
             disabled={submitMutation.isPending || tags.length === 0}
-            className="w-full bg-blue-600 text-white font-semibold py-3 px-4 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 dark:focus:ring-offset-slate-800 disabled:opacity-50"
+            className="w-full bg-purple-600 text-white font-semibold py-3 px-4 rounded-md hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-purple-400 disabled:opacity-50 shadow-lg"
           >
             {submitMutation.isPending ? 'Submitting...' : 'Submit to Guide'}
           </button>
         </form>
 
         <div className="mt-8 text-center">
-          <Link href="/guide" className="text-blue-600 hover:underline dark:text-blue-400">
+          <Link href="/guide" className="text-purple-300 hover:text-purple-200 hover:underline">
             &larr; Back to Guide
           </Link>
         </div>

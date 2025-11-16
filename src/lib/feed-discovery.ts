@@ -90,12 +90,12 @@ async function checkIfFeed(url: string): Promise<FeedDiscoveryResult> {
 
       if (text.includes('<rss')) {
         type = 'rss'
-        const titleMatch = text.match(/<title>([^<]+)<\/title>/)
-        if (titleMatch) title = titleMatch[1]
+        const titleMatch = text.match(/<title>(?:<!\[CDATA\[)?\s*([^<]+?)\s*(?:\]\]>)?<\/title>/)
+        if (titleMatch) title = titleMatch[1].trim()
       } else if (text.includes('<feed') || text.includes('xmlns="http://www.w3.org/2005/Atom"')) {
         type = 'atom'
-        const titleMatch = text.match(/<title[^>]*>([^<]+)<\/title>/)
-        if (titleMatch) title = titleMatch[1]
+        const titleMatch = text.match(/<title[^>]*>(?:<!\[CDATA\[)?\s*([^<]+?)\s*(?:\]\]>)?<\/title>/)
+        if (titleMatch) title = titleMatch[1].trim()
       }
 
       return {

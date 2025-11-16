@@ -3,7 +3,7 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react'
 import { Event, getPublicKey, nip19, UnsignedEvent, finalizeEvent } from 'nostr-tools'
 
-export type NostrAuthMethod = 'nip07' | 'npub_password' | 'bunker' | null
+export type NostrAuthMethod = 'nip07' | 'npub_password' | null
 
 export interface NostrUser {
   pubkey: string
@@ -21,7 +21,7 @@ export interface NostrAuthState {
   isConnected: boolean
   user: NostrUser | null
   authMethod: NostrAuthMethod
-  connect: (method: NostrAuthMethod, credentials?: { npub?: string; password?: string; bunkerUrl?: string }) => Promise<void>
+  connect: (method: NostrAuthMethod, credentials?: { npub?: string; password?: string }) => Promise<void>
   disconnect: () => void
   signEvent: (event: UnsignedEvent) => Promise<Event | null>
   getPublicKey: () => string | null
@@ -41,46 +41,62 @@ export function NostrAuthProvider({ children }: NostrAuthProviderProps) {
 
   // Check for existing connection on mount
   useEffect(() => {
-    checkExistingConnection()
+    const restoreSession = async () => {
+      await checkExistingConnection()
+    }
+    restoreSession()
   }, [])
 
   const checkExistingConnection = async () => {
-    // Check for NIP-07 extension
-    if (typeof window !== 'undefined' && window.nostr) {
-      try {
-        const pubkey = await window.nostr.getPublicKey()
-        if (pubkey) {
-          const npub = nip19.npubEncode(pubkey)
-          setUser({ pubkey, npub })
-          setAuthMethod('nip07')
-          setIsConnected(true)
-        }
-      } catch (error) {
-        console.log('No existing NIP-07 connection')
-      }
-    }
-
-    // Check for stored session (npub+password)
+    // Check for stored session first
     const storedSession = localStorage.getItem('nostr_session')
     if (storedSession) {
       try {
         const sessionData = JSON.parse(storedSession)
-        if (sessionData.method === 'npub_password' && sessionData.pubkey) {
+        
+        if (sessionData.method === 'nip07') {
+          // For NIP-07, verify the extension is still available
+          if (typeof window !== 'undefined' && window.nostr) {
+            try {
+              const pubkey = await window.nostr.getPublicKey()
+              const npub = nip19.npubEncode(pubkey)
+              setUser({ pubkey, npub })
+              setAuthMethod('nip07')
+              setIsConnected(true)
+              console.log('Restored NIP-07 session')
+              return
+            } catch (error) {
+              console.log('NIP-07 extension not available, clearing session')
+              localStorage.removeItem('nostr_session')
+            }
+          } else {
+            console.log('NIP-07 extension not found, clearing session')
+            localStorage.removeItem('nostr_session')
+          }
+        } else if (sessionData.method === 'npub_password' && sessionData.pubkey) {
+          // Restore npub+password session
           setUser({ 
             pubkey: sessionData.pubkey, 
             npub: sessionData.npub 
           })
           setAuthMethod('npub_password')
           setIsConnected(true)
+          console.log('Restored npub+password session')
+          return
         }
       } catch (error) {
         console.error('Invalid stored session:', error)
         localStorage.removeItem('nostr_session')
       }
     }
+    
+    // If no stored session, try to detect NIP-07 extension
+    if (typeof window !== 'undefined' && window.nostr) {
+      console.log('NIP-07 extension detected but no stored session')
+    }
   }
 
-  const connect = async (method: NostrAuthMethod, credentials?: { npub?: string; password?: string; bunkerUrl?: string }) => {
+  const connect = async (method: NostrAuthMethod, credentials?: { npub?: string; password?: string }) => {
     try {
       switch (method) {
         case 'nip07':
@@ -91,10 +107,6 @@ export function NostrAuthProvider({ children }: NostrAuthProviderProps) {
             throw new Error('npub and password required for npub_password method')
           }
           await connectNpubPassword(credentials.npub, credentials.password)
-          break
-        case 'bunker':
-          if (!credentials?.bunkerUrl) throw new Error('bunker URL required for bunker method')
-          await connectBunker(credentials.bunkerUrl)
           break
         default:
           throw new Error('Invalid auth method')
@@ -107,24 +119,34 @@ export function NostrAuthProvider({ children }: NostrAuthProviderProps) {
 
   const connectNIP07 = async () => {
     if (typeof window === 'undefined' || !window.nostr) {
-      throw new Error('NIP-07 extension not found. Please install a Nostr browser extension like Alby or nos2x.')
+      // Check if we're on Android to suggest Amber
+      const isAndroid = /Android/i.test(navigator.userAgent)
+      const errorMessage = isAndroid
+        ? 'No Nostr signer detected. Please install Amber from https://github.com/greenart7c3/Amber/releases'
+        : 'NIP-07 extension not found. Please install a Nostr browser extension like Alby, nos2x, or Amber.'
+      throw new Error(errorMessage)
     }
 
-    const pubkey = await window.nostr.getPublicKey()
-    const npub = nip19.npubEncode(pubkey)
-    
-    // Store the session
-    const sessionData = {
-      pubkey,
-      npub,
-      method: 'nip07',
-      timestamp: Date.now()
+    try {
+      const pubkey = await window.nostr.getPublicKey()
+      const npub = nip19.npubEncode(pubkey)
+      
+      // Store the session
+      const sessionData = {
+        pubkey,
+        npub,
+        method: 'nip07',
+        timestamp: Date.now()
+      }
+      localStorage.setItem('nostr_session', JSON.stringify(sessionData))
+      
+      setUser({ pubkey, npub })
+      setAuthMethod('nip07')
+      setIsConnected(true)
+    } catch (error) {
+      console.error('NIP-07 connection error:', error)
+      throw new Error('Failed to connect to Nostr signer. Please approve the connection request.')
     }
-    localStorage.setItem('nostr_session', JSON.stringify(sessionData))
-    
-    setUser({ pubkey, npub })
-    setAuthMethod('nip07')
-    setIsConnected(true)
   }
 
   const connectNpubPassword = async (npub: string, password: string) => {
@@ -161,12 +183,6 @@ export function NostrAuthProvider({ children }: NostrAuthProviderProps) {
     }
   }
 
-  const connectBunker = async (bunkerUrl: string) => {
-    // Placeholder for NIP-46 bunker implementation
-    // This would connect to a remote signer
-    throw new Error('Bunker support coming soon!')
-  }
-
   const disconnect = () => {
     setIsConnected(false)
     setUser(null)
@@ -187,10 +203,7 @@ export function NostrAuthProvider({ children }: NostrAuthProviderProps) {
           throw new Error('NIP-07 signing not available')
 
         case 'npub_password':
-          throw new Error('Cannot sign events with npub+password authentication. Use NIP-07 extension or bunker for signing.')
-
-        case 'bunker':
-          throw new Error('Bunker signing not yet implemented')
+          throw new Error('Cannot sign events with npub+password authentication. Use NIP-07 extension for signing.')
 
         default:
           throw new Error('No signing method available')

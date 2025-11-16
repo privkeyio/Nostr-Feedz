@@ -25,14 +25,6 @@ export default function HomePage() {
         <p className="text-2xl text-white">
           Your RSS + Nostr Feed Reader
         </p>
-        <div className="bg-purple-600/20 border border-purple-400/50 rounded-lg px-6 py-3 backdrop-blur-sm">
-          <p className="text-white text-lg">
-            <span className="font-bold">7-day free trial</span> · Then $1.50/month
-          </p>
-          <p className="text-sm text-purple-200 mt-1">
-            Pay with Bitcoin or fiat
-          </p>
-        </div>
         <div className="max-w-2xl text-center">
           <p className="text-lg text-gray-300 mb-8">
             Subscribe to RSS feeds and Nostr long-form content (NIP-23) in one unified reader. 

@@ -2,6 +2,8 @@
 
 import { useState, useEffect } from 'react'
 
+export type MarkReadBehavior = 'on-open' | 'after-10s' | 'never'
+
 interface Relay {
   url: string
   status: 'connected' | 'connecting' | 'disconnected' | 'error'
@@ -27,12 +29,32 @@ const POPULAR_RELAYS = [
   { url: 'wss://purplepag.es', name: 'Purple Pages' },
 ]
 
+const MARK_READ_OPTIONS: { value: MarkReadBehavior; title: string; description: string }[] = [
+  {
+    value: 'on-open',
+    title: 'When I open an article',
+    description: 'Articles are marked as read immediately when you open them.',
+  },
+  {
+    value: 'after-10s',
+    title: 'After 10 seconds of reading',
+    description: 'Gives you a short grace period before marking items as read.',
+  },
+  {
+    value: 'never',
+    title: 'Never automatically',
+    description: 'Articles stay unread until you manually mark them as read.',
+  },
+]
+
 interface SettingsDialogProps {
   isOpen: boolean
   onClose: () => void
+  markReadBehavior: MarkReadBehavior
+  onChangeMarkReadBehavior: (behavior: MarkReadBehavior) => void
 }
 
-export function SettingsDialog({ isOpen, onClose }: SettingsDialogProps) {
+export function SettingsDialog({ isOpen, onClose, markReadBehavior, onChangeMarkReadBehavior }: SettingsDialogProps) {
   const [relays, setRelays] = useState<Relay[]>([])
   const [newRelayUrl, setNewRelayUrl] = useState('')
   const [error, setError] = useState('')
@@ -225,6 +247,39 @@ export function SettingsDialog({ isOpen, onClose }: SettingsDialogProps) {
                     ))
                   )}
                 </div>
+              </div>
+            </div>
+
+            {/* Reading Preferences */}
+            <div className="pt-4 border-t border-slate-200 dark:border-slate-700">
+              <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-2">Reading Preferences</h3>
+              <p className="text-sm text-slate-600 dark:text-slate-400 mb-4">
+                Choose when articles should be marked as read.
+              </p>
+              <div className="space-y-3">
+                {MARK_READ_OPTIONS.map((option) => (
+                  <label
+                    key={option.value}
+                    className={`flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
+                      markReadBehavior === option.value
+                        ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/30'
+                        : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800'
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="mark-read-behavior"
+                      value={option.value}
+                      checked={markReadBehavior === option.value}
+                      onChange={() => onChangeMarkReadBehavior(option.value)}
+                      className="mt-1"
+                    />
+                    <div>
+                      <div className="font-medium text-slate-900 dark:text-slate-100">{option.title}</div>
+                      <p className="text-sm text-slate-600 dark:text-slate-400">{option.description}</p>
+                    </div>
+                  </label>
+                ))}
               </div>
             </div>
 

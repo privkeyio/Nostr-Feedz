@@ -2,44 +2,58 @@
 
 import { useNostrAuth } from '@/contexts/NostrAuthContext'
 import { useTheme } from '@/contexts/ThemeContext'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { api } from '@/trpc/react'
 import { AddFeedModal } from './add-feed-modal'
-import { SettingsDialog } from './settings-dialog'
+import { SettingsDialog, MarkReadBehavior } from './settings-dialog'
 import { FormattedContent } from './formatted-content'
+import type { inferRouterOutputs } from '@trpc/server'
+import type { AppRouter } from '@/server/api/root'
 
 interface Feed {
   id: string
   title: string
-  type: 'RSS' | 'NOSTR'
+  type: 'RSS' | 'NOSTR' | 'NOSTR_VIDEO'
   unreadCount: number
   url?: string
   npub?: string
   tags?: string[]
 }
 
-interface FeedItem {
-  id: string
-  title: string
-  content: string
-  author?: string
-  publishedAt: Date
-  url?: string
-  isRead: boolean
-  feedTitle: string
-}
+type RouterOutputs = inferRouterOutputs<AppRouter>
+type FeedItemsResponse = RouterOutputs['feed']['getFeedItems']
+type FeedItem = FeedItemsResponse['items'][number]
+type FavoritesResponse = RouterOutputs['feed']['getFavorites']
+type FavoriteItem = FavoritesResponse['items'][number]
+
+const FAVORITES_QUERY_INPUT = { limit: 50 } as const
+const QUICK_MARK_READ_OPTIONS: { value: MarkReadBehavior; label: string; helper: string }[] = [
+  { value: 'on-open', label: 'On open', helper: 'Mark as soon as I open the story' },
+  { value: 'after-10s', label: 'After 10 seconds', helper: 'Give me a short buffer before marking read' },
+  { value: 'never', label: 'Never automatically', helper: 'Only change when I click Mark as Read' },
+]
 
 export function FeedReader() {
   const { user, disconnect } = useNostrAuth()
   const { theme, toggleTheme } = useTheme()
   const router = useRouter()
+  const utils = api.useUtils()
+  
+  // Add logging to track user state
+  useEffect(() => {
+    console.log('🔍 FeedReader: User state changed:', {
+      hasUser: !!user,
+      pubkey: user?.pubkey?.slice(0, 8),
+      npub: user?.npub?.slice(0, 12)
+    })
+  }, [user])
   const [selectedFeed, setSelectedFeed] = useState<string | null>('all')
   const [selectedItem, setSelectedItem] = useState<string | null>(null)
   const [showAddFeed, setShowAddFeed] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
   const [feedError, setFeedError] = useState<string>('')
-  const [sidebarView, setSidebarView] = useState<'feeds' | 'tags'>('feeds')
+  const [sidebarView, setSidebarView] = useState<'feeds' | 'tags' | 'favorites'>('feeds')
   const [selectedTags, setSelectedTags] = useState<string[]>([])
   const [openMenuFeedId, setOpenMenuFeedId] = useState<string | null>(null)
   const [editingFeedId, setEditingFeedId] = useState<string | null>(null)
@@ -48,10 +62,32 @@ export function FeedReader() {
   const [showViewOptions, setShowViewOptions] = useState(false)
   const [viewFilter, setViewFilter] = useState<'all' | 'unread' | 'read'>('all')
   const [sortOrder, setSortOrder] = useState<'newest' | 'oldest'>('newest')
+  const [markReadBehavior, setMarkReadBehavior] = useState<MarkReadBehavior>('on-open')
+  const markReadTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   
   // Mobile responsive state
   const [showSidebar, setShowSidebar] = useState(false)
   const [mobileView, setMobileView] = useState<'list' | 'content'>('list')
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const stored = localStorage.getItem('mark_read_behavior') as MarkReadBehavior | 'manual' | null
+    if (stored === 'manual') {
+      setMarkReadBehavior('never')
+      localStorage.setItem('mark_read_behavior', 'never')
+      return
+    }
+    if (stored === 'on-open' || stored === 'after-10s' || stored === 'never') {
+      setMarkReadBehavior(stored)
+    }
+  }, [])
+
+  const handleMarkReadBehaviorChange = (behavior: MarkReadBehavior) => {
+    setMarkReadBehavior(behavior)
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('mark_read_behavior', behavior)
+    }
+  }
 
   // Sign out handler
   const handleSignOut = () => {
@@ -86,29 +122,100 @@ export function FeedReader() {
   }, [openMenuFeedId, showViewOptions])
   
   // tRPC queries - only run when user is authenticated
-  const { data: feeds = [], refetch: refetchFeeds } = api.feed.getFeeds.useQuery(
+  const { data: feedsData = [], refetch: refetchFeeds } = api.feed.getFeeds.useQuery(
     selectedTags.length > 0 ? { tags: selectedTags } : undefined,
     {
       enabled: !!user && !!user.npub,
     }
   )
   
+  // Filter out any feeds with invalid IDs
+  const feeds = feedsData.filter((f: any) => f && f.id && typeof f.id === 'string' && f.id !== 'undefined')
+  
   const { data: userTags = [] } = api.feed.getUserTags.useQuery(undefined, {
     enabled: !!user && !!user.npub,
   })
   
+  // Favorites query
+  const { data: favoritesData, isLoading: favoritesLoading } = api.feed.getFavorites.useQuery(
+    FAVORITES_QUERY_INPUT,
+    { enabled: !!user && !!user.npub && sidebarView === 'favorites' }
+  )
+  
   // When tags are selected and viewing "All Items", we need to filter items 
   // to only show items from feeds that match the selected tags
-  const filteredFeedIds = selectedTags.length > 0 && selectedFeed === 'all'
-    ? feeds.map((f: any) => f.id)
+  const filteredFeedIds = selectedTags.length > 0 && selectedFeed === 'all' && feeds.length > 0
+    ? feeds.map((f: any) => f.id).filter((id: any) => id && typeof id === 'string' && id !== 'undefined')
     : undefined
   
+  // Ensure we don't pass invalid feedId values
+  const safeFeedId = selectedFeed === 'all' ? undefined : (selectedFeed && typeof selectedFeed === 'string' && selectedFeed !== 'undefined' ? selectedFeed : undefined)
+  
+  // Build query input conditionally to avoid serialization issues with undefined
+  const feedQueryInput = useMemo(() => {
+    const input: { feedId?: string; feedIds?: string[] } = {}
+    if (safeFeedId) input.feedId = safeFeedId
+    if (filteredFeedIds && filteredFeedIds.length > 0) input.feedIds = filteredFeedIds
+    return input
+  }, [safeFeedId, filteredFeedIds ? filteredFeedIds.join(',') : ''])
+
+  const updateFeedItemCache = (itemId: string, updater: (item: FeedItem) => Partial<FeedItem>) => {
+    utils.feed.getFeedItems.setData(feedQueryInput, (data) => {
+      if (!data) return data
+      return {
+        ...data,
+        items: data.items.map((item) =>
+          item.id === itemId ? { ...item, ...updater(item) } : item
+        ),
+      }
+    })
+  }
+
+  const removeFavoriteFromCache = (itemId: string) => {
+    utils.feed.getFavorites.setData(FAVORITES_QUERY_INPUT, (data) => {
+      if (!data) return data
+      return {
+        ...data,
+        items: data.items.filter((favorite) => favorite.id !== itemId),
+      }
+    })
+  }
+
+  const addFavoriteToCache = (item: FeedItem) => {
+    utils.feed.getFavorites.setData(FAVORITES_QUERY_INPUT, (data) => {
+      if (!data) return data
+      const alreadyExists = data.items.some(fav => fav.id === item.id)
+      if (alreadyExists) return data
+
+      const newFavorite: FavoriteItem = {
+        ...item,
+        favoritedAt: new Date(),
+        isFavorited: true,
+      }
+
+      return {
+        ...data,
+        items: [newFavorite, ...data.items].slice(0, FAVORITES_QUERY_INPUT.limit),
+      }
+    })
+  }
+  
+  console.log('🔍 Feed query params:', {
+    selectedFeed,
+    safeFeedId,
+    selectedTags,
+    filteredFeedIds,
+    feedsCount: feeds.length,
+    queryInput: feedQueryInput,
+  })
+
   const { data: feedItemsData, isLoading: itemsLoading } = api.feed.getFeedItems.useQuery(
+    feedQueryInput,
     { 
-      feedId: selectedFeed === 'all' ? undefined : selectedFeed ?? undefined,
-      feedIds: filteredFeedIds, // Pass filtered feed IDs when tags are selected
-    },
-    { enabled: !!user && !!user.npub }
+      enabled: !!user && !!user.npub,
+      // Don't retry on 500 errors to avoid spamming the server
+      retry: false,
+    }
   )
   
   // Mutations
@@ -152,12 +259,37 @@ export function FeedReader() {
     },
   })
   
-  const markAsReadMutation = api.feed.markAsRead.useMutation()
+  const invalidateFeedData = () => {
+    void utils.feed.getFeedItems.invalidate()
+    void utils.feed.getFeeds.invalidate()
+    void utils.feed.getFavorites.invalidate()
+  }
+
+  const markAsReadMutation = api.feed.markAsRead.useMutation({
+    onSuccess: (_data, { itemId }) => {
+      updateFeedItemCache(itemId, () => ({ isRead: true }))
+      invalidateFeedData()
+    },
+  })
+  const markAsUnreadMutation = api.feed.markAsUnread.useMutation({
+    onSuccess: (_data, { itemId }) => {
+      updateFeedItemCache(itemId, () => ({ isRead: false }))
+      invalidateFeedData()
+    },
+  })
   
   const markAllAsReadMutation = api.feed.markFeedAsRead.useMutation({
     onSuccess: () => {
       refetchFeeds()
     },
+  })
+  
+  const addFavoriteMutation = api.feed.addFavorite.useMutation({
+    onSuccess: invalidateFeedData,
+  })
+  
+  const removeFavoriteMutation = api.feed.removeFavorite.useMutation({
+    onSuccess: invalidateFeedData,
   })
   
   // Prepare feeds list with "All Items" option
@@ -171,7 +303,7 @@ export function FeedReader() {
     ...feeds.map(feed => ({
       id: feed.id,
       title: feed.title,
-      type: feed.type as 'RSS' | 'NOSTR',
+      type: feed.type as 'RSS' | 'NOSTR' | 'NOSTR_VIDEO',
       unreadCount: feed.unreadCount,
       url: feed.url || undefined,
       npub: feed.npub || undefined,
@@ -224,7 +356,35 @@ export function FeedReader() {
     feedItems = [...feedItems].reverse()
   }
   
-  const selectedItemData = selectedItem ? feedItems.find(item => item.id === selectedItem) : null
+  const selectedItemData = selectedItem
+    ? (feedItems.find(item => item.id === selectedItem) || allFeedItems.find(item => item.id === selectedItem) || null)
+    : null
+  const selectedItemOriginalUrl = selectedItemData?.originalUrl ?? selectedItemData?.url
+  const selectedItemIsRead = selectedItemData?.isRead ?? false
+
+  useEffect(() => {
+    if (markReadTimeoutRef.current) {
+      clearTimeout(markReadTimeoutRef.current)
+      markReadTimeoutRef.current = null
+    }
+
+    if (markReadBehavior !== 'after-10s' || !selectedItem || selectedItemIsRead) {
+      return
+    }
+
+    const timeoutId = setTimeout(() => {
+      markAsReadMutation.mutate({ itemId: selectedItem })
+    }, 10000)
+
+    markReadTimeoutRef.current = timeoutId
+
+    return () => {
+      if (markReadTimeoutRef.current) {
+        clearTimeout(markReadTimeoutRef.current)
+        markReadTimeoutRef.current = null
+      }
+    }
+  }, [selectedItem, markReadBehavior, selectedItemIsRead, markAsReadMutation])
   
   // Handle adding new feed
   const handleAddFeed = async (type: 'RSS' | 'NOSTR', url?: string, npub?: string, title?: string, tags?: string[]) => {
@@ -244,9 +404,34 @@ export function FeedReader() {
   // Handle marking item as read when clicked
   const handleItemClick = (itemId: string) => {
     setSelectedItem(itemId)
-    const item = feedItems.find(i => i.id === itemId)
-    if (item && !item.isRead) {
+    const item = allFeedItems.find(i => i.id === itemId)
+    if (markReadBehavior === 'on-open' && item && !item.isRead) {
+      updateFeedItemCache(itemId, () => ({ isRead: true }))
       markAsReadMutation.mutate({ itemId })
+    }
+  }
+
+  const handleToggleReadStatus = (item: FeedItem | null) => {
+    if (!item) return
+    if (item.isRead) {
+      markAsUnreadMutation.mutate({ itemId: item.id })
+    } else {
+      markAsReadMutation.mutate({ itemId: item.id })
+    }
+  }
+  
+  // Handle toggling favorite status
+  const handleToggleFavorite = (itemId: string, isFavorited: boolean) => {
+    updateFeedItemCache(itemId, () => ({ isFavorited: !isFavorited }))
+    if (isFavorited) {
+      removeFavoriteFromCache(itemId)
+      removeFavoriteMutation.mutate({ itemId })
+    } else {
+      const sourceItem = allFeedItems.find(item => item.id === itemId)
+      if (sourceItem) {
+        addFavoriteToCache({ ...sourceItem, isFavorited: true })
+      }
+      addFavoriteMutation.mutate({ itemId })
     }
   }
   
@@ -258,7 +443,7 @@ export function FeedReader() {
   }
   
   // Handle refreshing a feed
-  const handleRefreshFeed = (feedId: string, feedType: 'RSS' | 'NOSTR') => {
+  const handleRefreshFeed = (feedId: string, feedType: 'RSS' | 'NOSTR' | 'NOSTR_VIDEO') => {
     if (feedType === 'RSS') {
       refreshFeedMutation.mutate({ feedId })
     } else {
@@ -370,7 +555,7 @@ export function FeedReader() {
                 setSelectedTags([])
                 setShowSidebar(true)
               }}
-              className={`flex-1 px-3 py-1 text-sm rounded-md transition-colors ${
+              className={`flex-1 px-2 py-1 text-sm rounded-md transition-colors ${
                 sidebarView === 'feeds'
                   ? 'bg-white dark:bg-slate-600 shadow-sm font-medium text-slate-900 dark:text-slate-100'
                   : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-slate-100'
@@ -383,13 +568,27 @@ export function FeedReader() {
                 setSidebarView('tags')
                 setShowSidebar(true)
               }}
-              className={`flex-1 px-3 py-1 text-sm rounded-md transition-colors ${
+              className={`flex-1 px-2 py-1 text-sm rounded-md transition-colors ${
                 sidebarView === 'tags'
                   ? 'bg-white dark:bg-slate-600 shadow-sm font-medium text-slate-900 dark:text-slate-100'
                   : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-slate-100'
               }`}
             >
               Tags
+            </button>
+            <button
+              onClick={() => {
+                setSidebarView('favorites')
+                setSelectedTags([])
+                setShowSidebar(true)
+              }}
+              className={`flex-1 px-2 py-1 text-sm rounded-md transition-colors ${
+                sidebarView === 'favorites'
+                  ? 'bg-white dark:bg-slate-600 shadow-sm font-medium text-slate-900 dark:text-slate-100'
+                  : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-slate-100'
+              }`}
+            >
+              ⭐
             </button>
           </div>
         </div>
@@ -452,7 +651,7 @@ export function FeedReader() {
                 setSidebarView('feeds')
                 setSelectedTags([])
               }}
-              className={`flex-1 px-3 py-1 text-sm rounded-md transition-colors ${
+              className={`flex-1 px-2 py-1 text-sm rounded-md transition-colors ${
                 sidebarView === 'feeds'
                   ? 'bg-white dark:bg-slate-600 shadow-sm font-medium text-slate-900 dark:text-slate-100'
                   : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-slate-100'
@@ -462,13 +661,26 @@ export function FeedReader() {
             </button>
             <button
               onClick={() => setSidebarView('tags')}
-              className={`flex-1 px-3 py-1 text-sm rounded-md transition-colors ${
+              className={`flex-1 px-2 py-1 text-sm rounded-md transition-colors ${
                 sidebarView === 'tags'
                   ? 'bg-white dark:bg-slate-600 shadow-sm font-medium text-slate-900 dark:text-slate-100'
                   : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-slate-100'
               }`}
             >
               Tags
+            </button>
+            <button
+              onClick={() => {
+                setSidebarView('favorites')
+                setSelectedTags([])
+              }}
+              className={`flex-1 px-2 py-1 text-sm rounded-md transition-colors ${
+                sidebarView === 'favorites'
+                  ? 'bg-white dark:bg-slate-600 shadow-sm font-medium text-slate-900 dark:text-slate-100'
+                  : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-slate-100'
+              }`}
+            >
+              ⭐
             </button>
           </div>
         </div>
@@ -524,7 +736,7 @@ export function FeedReader() {
                 <div className="flex items-center justify-between">
                   <div className="flex items-center space-x-2">
                     <span className="text-xs">
-                      {feed.type === 'RSS' ? '📰' : '⚡'}
+                      {feed.type === 'RSS' ? '📰' : feed.type === 'NOSTR_VIDEO' ? '🎬' : '⚡'}
                     </span>
                     <span className="text-sm font-medium text-slate-800 dark:text-slate-100 truncate">
                       {feed.title}
@@ -668,6 +880,65 @@ export function FeedReader() {
           </div>
         )}
 
+        {/* Favorites List */}
+        {sidebarView === 'favorites' && (
+          <div className="flex-1 overflow-y-auto">
+            {favoritesLoading ? (
+              <div className="p-4 text-center text-slate-500 dark:text-slate-400 text-sm">
+                Loading favorites...
+              </div>
+            ) : !favoritesData?.items || favoritesData.items.length === 0 ? (
+              <div className="p-4 text-center text-slate-500 dark:text-slate-400 text-sm">
+                No favorites yet. Star items to save them here!
+              </div>
+            ) : (
+              favoritesData.items.map((item: any) => (
+                <div
+                  key={item.id}
+                  className={`w-full px-4 py-3 text-left hover:bg-slate-50 dark:hover:bg-slate-700/50 border-b border-slate-100 dark:border-slate-700 ${
+                    selectedItem === item.id ? 'bg-blue-50 dark:bg-blue-900/30 border-l-4 border-l-blue-500' : ''
+                  }`}
+                >
+                  <div className="flex items-start gap-3">
+                    <button
+                      onClick={() => {
+                        setSelectedItem(item.id)
+                        setMobileView('content')
+                      }}
+                      className="flex-1 text-left"
+                    >
+                      <div className="flex items-center space-x-2 mb-1">
+                        <span className="text-xs">⭐</span>
+                        <span className="text-xs text-slate-500 dark:text-slate-400 truncate">
+                          {item.feedTitle || 'Unknown Feed'}
+                        </span>
+                      </div>
+                      <h3 className="text-sm font-medium text-slate-800 dark:text-slate-100 mb-1 line-clamp-2">
+                        {item.title}
+                      </h3>
+                      {item.snippet && (
+                        <p className="text-xs text-slate-600 dark:text-slate-300 line-clamp-2">
+                          {item.snippet}
+                        </p>
+                      )}
+                    </button>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        handleToggleFavorite(item.id, true)
+                      }}
+                      className="p-2 text-xs text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/40 rounded-md"
+                      title="Remove from favorites"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        )}
+
         {/* Footer */}
         <div className="p-4 border-t border-slate-200 dark:border-slate-700 flex-shrink-0">{/* flex-shrink-0 keeps footer fixed */}
           <button
@@ -776,6 +1047,28 @@ export function FeedReader() {
                         {sortOrder === 'oldest' && '✓ '}Oldest First
                       </button>
                     </div>
+
+                    <div className="border-t border-slate-100 dark:border-slate-600 mt-1 pt-1">
+                      <div className="px-3 py-1 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase">Mark as read</div>
+                      {QUICK_MARK_READ_OPTIONS.map(option => (
+                        <button
+                          key={option.value}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            handleMarkReadBehaviorChange(option.value)
+                            setShowViewOptions(false)
+                          }}
+                          className={`w-full text-left px-3 py-2 text-sm hover:bg-slate-50 dark:hover:bg-slate-600 ${
+                            markReadBehavior === option.value ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300' : 'text-slate-700 dark:text-slate-200'
+                          }`}
+                        >
+                          <div className="flex flex-col text-left">
+                            <span>{markReadBehavior === option.value ? '✓ ' : ''}{option.label}</span>
+                            <span className="text-[11px] text-slate-500 dark:text-slate-400">{option.helper}</span>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
                   </div>
                 </div>
               )}
@@ -810,34 +1103,50 @@ export function FeedReader() {
             </div>
           ) : (
             feedItems.map((item) => (
-              <button
+              <div
                 key={item.id}
-                onClick={() => {
-                  handleItemClick(item.id)
-                  setMobileView('content')
-                }}
-                className={`w-full text-left p-4 border-b border-slate-100 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700/50 ${
+                className={`relative w-full text-left border-b border-slate-100 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700/50 ${
                   selectedItem === item.id ? 'bg-blue-50 dark:bg-blue-900/30 border-l-4 border-l-blue-500' : ''
                 } ${item.isRead ? 'opacity-70' : ''}`}
               >
-                <div className="space-y-2">
-                  <h3 className={`text-sm font-medium ${item.isRead ? 'text-slate-600 dark:text-slate-400' : 'text-slate-900 dark:text-slate-100'}`}>
-                    {item.title}
-                  </h3>
-                  <div className="text-xs text-slate-500 dark:text-slate-400">
-                    {item.author} • {item.publishedAt.toLocaleDateString()}
+                <button
+                  onClick={() => {
+                    handleItemClick(item.id)
+                    setMobileView('content')
+                  }}
+                  className="w-full p-4 pr-12"
+                >
+                  <div className="space-y-2">
+                    <h3 className={`text-sm font-medium ${item.isRead ? 'text-slate-600 dark:text-slate-400' : 'text-slate-900 dark:text-slate-100'}`}>
+                      {item.title}
+                    </h3>
+                    <div className="text-xs text-slate-500 dark:text-slate-400">
+                      {item.author} • {item.publishedAt.toLocaleDateString()}
+                    </div>
+                    <p className="text-xs text-slate-600 dark:text-slate-400 line-clamp-2">
+                      {item.content.replace(/<[^>]*>/g, '').substring(0, 120)}...
+                    </p>
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-slate-500 dark:text-slate-400">{item.feedTitle}</span>
+                      {!item.isRead && (
+                        <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
+                      )}
+                    </div>
                   </div>
-                  <p className="text-xs text-slate-600 dark:text-slate-400 line-clamp-2">
-                    {item.content.replace(/<[^>]*>/g, '').substring(0, 120)}...
-                  </p>
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs text-slate-500 dark:text-slate-400">{item.feedTitle}</span>
-                    {!item.isRead && (
-                      <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
-                    )}
-                  </div>
-                </div>
-              </button>
+                </button>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    handleToggleFavorite(item.id, item.isFavorited || false)
+                  }}
+                  className="absolute top-4 right-4 p-2 hover:bg-slate-200 dark:hover:bg-slate-600 rounded-md transition-colors"
+                  title={item.isFavorited ? 'Remove from favorites' : 'Add to favorites'}
+                >
+                  <span className="text-base">
+                    {item.isFavorited ? '⭐' : '☆'}
+                  </span>
+                </button>
+              </div>
             ))
           )}
         </div>
@@ -864,25 +1173,44 @@ export function FeedReader() {
         {selectedItemData ? (
           <>
             <div className="p-6 border-b border-slate-200 dark:border-slate-700 flex-shrink-0">{/* Fixed header */}
-              <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100 mb-2">
-                {selectedItemData.title}
-              </h1>
+              <div className="flex items-start justify-between mb-2">
+                <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100 flex-1 pr-4">
+                  {selectedItemData.title}
+                </h1>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => handleToggleReadStatus(selectedItemData)}
+                    className="px-3 py-2 text-sm font-medium rounded-md border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700"
+                  >
+                    {selectedItemData.isRead ? 'Mark as Unread' : 'Mark as Read'}
+                  </button>
+                  <button
+                    onClick={() => handleToggleFavorite(selectedItemData.id, selectedItemData.isFavorited || false)}
+                    className="p-2 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-md transition-colors flex-shrink-0"
+                    title={selectedItemData.isFavorited ? 'Remove from favorites' : 'Add to favorites'}
+                  >
+                    <span className="text-2xl">
+                      {selectedItemData.isFavorited ? '⭐' : '☆'}
+                    </span>
+                  </button>
+                </div>
+              </div>
               <div className="flex items-center space-x-4 text-sm text-slate-600 dark:text-slate-400">
                 <span>{selectedItemData.author}</span>
                 <span>•</span>
                 <span>{selectedItemData.publishedAt.toLocaleDateString()}</span>
                 <span>•</span>
                 <span>{selectedItemData.feedTitle}</span>
-                {selectedItemData.url && (
+                {selectedItemOriginalUrl && (
                   <>
                     <span>•</span>
                     <a
-                      href={selectedItemData.url}
+                      href={selectedItemOriginalUrl}
                       target="_blank"
                       rel="noopener noreferrer" 
                       className="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
                     >
-                      View Original
+                      {selectedItemData.feedType === 'NOSTR' || selectedItemData.feedType === 'NOSTR_VIDEO' ? 'View on Nostr' : 'View Original'}
                     </a>
                   </>
                 )}
@@ -892,6 +1220,9 @@ export function FeedReader() {
               <div className="max-w-3xl mx-auto p-8">
                 <FormattedContent 
                   content={selectedItemData.content}
+                  embedUrl={selectedItemData.embedUrl ?? undefined}
+                  thumbnail={selectedItemData.thumbnail ?? undefined}
+                  title={selectedItemData.title}
                   className="prose prose-lg dark:prose-invert max-w-none"
                 />
               </div>
@@ -923,6 +1254,8 @@ export function FeedReader() {
       <SettingsDialog
         isOpen={showSettings}
         onClose={() => setShowSettings(false)}
+        markReadBehavior={markReadBehavior}
+        onChangeMarkReadBehavior={handleMarkReadBehaviorChange}
       />
 
       {/* Edit Tags Dialog */}

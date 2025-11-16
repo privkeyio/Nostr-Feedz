@@ -41,11 +41,15 @@ model FeedItem {
     author      String?
     publishedAt DateTime
     guid        String?  // RSS guid or Nostr event id (optional)
+    videoId     String?  // YouTube video ID or Rumble video ID
+    embedUrl    String?  // Full embed URL for video
+    thumbnail   String?  // Video thumbnail URL
     createdAt   DateTime @default(now())
     
     // Relations
     feed      Feed       @relation(fields: [feedId], references: [id], onDelete: Cascade)
     readItems ReadItem[]
+    favorites Favorite[]
     
     @@unique([feedId, guid])
     @@index([feedId, publishedAt])
@@ -77,6 +81,20 @@ model ReadItem {
     
     @@unique([userPubkey, itemId])
     @@index([userPubkey])
+}
+
+model Favorite {
+    id         String   @id @default(cuid())
+    userPubkey String   // Nostr pubkey
+    itemId     String
+    createdAt  DateTime @default(now())
+    
+    // Relations
+    feedItem FeedItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+    
+    @@unique([userPubkey, itemId])
+    @@index([userPubkey])
+    @@index([userPubkey, createdAt])
 }
 
 model NostrRelay {
@@ -114,7 +132,7 @@ model UserSubscription {
     id                String   @id @default(cuid())
     userPubkey        String   @unique // Nostr pubkey
     status            SubscriptionStatus @default(TRIAL)
-    trialEndsAt       DateTime // When the 7-day trial ends
+    trialEndsAt       DateTime // When the 7 day trial ends
     subscriptionEndsAt DateTime? // When current paid period ends (null if trial/cancelled)
     squareCustomerId  String?  // Square customer ID
     squareSubscriptionId String? // Square subscription ID
@@ -127,7 +145,7 @@ model UserSubscription {
 }
 
 enum SubscriptionStatus {
-    TRIAL           // In 7-day free trial
+    TRIAL           // In 7 day free trial
     ACTIVE          // Paid and active
     PAST_DUE        // Payment failed, grace period
     CANCELLED       // User cancelled, still valid until end date
@@ -137,4 +155,5 @@ enum SubscriptionStatus {
 enum FeedType {
     RSS
     NOSTR
+    NOSTR_VIDEO
 }

@@ -1,4 +1,3 @@
-version: '3.8'
 services:
   postgres:
     image: postgres:15
@@ -7,11 +6,50 @@ services:
       POSTGRES_DB: nostr_feedz
       POSTGRES_USER: nostr_user
       POSTGRES_PASSWORD: nostr_password
-    ports:
-      - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     restart: unless-stopped
+    networks:
+      - nostr-network
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: nostr-feedz-app
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URL=postgresql://nostr_user:nostr_password@postgres:5432/nostr_feedz
+      - DEFAULT_RELAYS=wss://relay.damus.io,wss://nos.lol,wss://relay.nostr.band
+      - NEXT_PUBLIC_FLASH_CHECKOUT_URL=https://app.paywithflash.com/subscription-page?flashId=3238
+      - FLASH_SUBSCRIPTION_KEY=97ee08713791860b5c849941dd596d0208928ab7ae9a468cec993504b06daca4
+    depends_on:
+      - postgres
+    restart: unless-stopped
+    networks:
+      - nostr-network
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: nostr-feedz-caddy
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - app
+    restart: unless-stopped
+    networks:
+      - nostr-network
 
 volumes:
   postgres_data:
+  caddy_data:
+  caddy_config:
+
+networks:
+  nostr-network:
+    driver: bridge

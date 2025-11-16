@@ -1,5 +1,6 @@
 import { parseString } from 'xml2js'
 import { promisify } from 'util'
+import { getVideoMetadata } from './video-parser'
 
 const parseXML = promisify(parseString)
 
@@ -10,6 +11,9 @@ export interface ParsedFeedItem {
   publishedAt: Date
   url?: string
   guid?: string
+  videoId?: string
+  embedUrl?: string
+  thumbnail?: string
 }
 
 export interface ParsedFeed {
@@ -58,6 +62,21 @@ function parseRSS(data: any): ParsedFeed {
     const pubDate = extractText(item.pubDate)
     const guid = extractText(item.guid)
 
+    // Extract video metadata if this is a video feed (YouTube/Rumble)
+    const videoMetadata = link ? getVideoMetadata(link) : null
+    
+    // Extract thumbnail from media:thumbnail or media:content
+    let thumbnail = videoMetadata?.thumbnail
+    if (!thumbnail && item['media:thumbnail']?.[0]?.$?.url) {
+      thumbnail = item['media:thumbnail'][0].$.url
+    }
+    if (!thumbnail && item['media:content']?.[0]?.$?.url) {
+      thumbnail = item['media:content'][0].$.url
+    }
+    if (!thumbnail && item['media:group']?.[0]?. ['media:thumbnail']?.[0]?.$?.url) {
+      thumbnail = item['media:group'][0]['media:thumbnail'][0].$.url
+    }
+
     return {
       title: title || 'Untitled',
       content: content || '',
@@ -65,6 +84,9 @@ function parseRSS(data: any): ParsedFeed {
       publishedAt: extractDate(pubDate),
       url: link || undefined,
       guid: guid || link || undefined,
+      videoId: videoMetadata?.videoId,
+      embedUrl: videoMetadata?.embedUrl,
+      thumbnail,
     }
   })
 
@@ -93,6 +115,18 @@ function parseAtom(data: any): ParsedFeed {
     const published = extractText(entry.published) || extractText(entry.updated)
     const id = extractText(entry.id)
 
+    // Extract video metadata if this is a video feed
+    const videoMetadata = url ? getVideoMetadata(url) : null
+    
+    // Extract thumbnail from media:thumbnail or media:group
+    let thumbnail = videoMetadata?.thumbnail
+    if (!thumbnail && entry['media:thumbnail']?.[0]?.$?.url) {
+      thumbnail = entry['media:thumbnail'][0].$.url
+    }
+    if (!thumbnail && entry['media:group']?.[0]?.['media:thumbnail']?.[0]?.$?.url) {
+      thumbnail = entry['media:group'][0]['media:thumbnail'][0].$.url
+    }
+
     return {
       title: title || 'Untitled',
       content: content || '',
@@ -100,6 +134,9 @@ function parseAtom(data: any): ParsedFeed {
       publishedAt: extractDate(published),
       url: url || undefined,
       guid: id || url || undefined,
+      videoId: videoMetadata?.videoId,
+      embedUrl: videoMetadata?.embedUrl,
+      thumbnail,
     }
   })
 
