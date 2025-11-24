@@ -24,7 +24,7 @@ sleep 10
 
 # Run database migrations
 echo "🗄️  Running database migrations..."
-docker compose exec app npx prisma migrate deploy
+docker compose exec app npx prisma@5.8.1 migrate deploy
 
 echo "✅ Deployment complete!"
 echo "🌐 Your app should be available at https://nostrfeedz.com"
