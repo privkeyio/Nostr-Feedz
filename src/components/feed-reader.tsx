@@ -456,6 +456,9 @@ export function FeedReader() {
     setShareSuccess(false)
 
     try {
+      // Get the user's public key
+      const pubkey = await window.nostr.getPublicKey()
+      
       // Build the share URL - for Nostr posts use habla.news, otherwise use original URL
       const shareUrl = originalUrl || item.url || ''
       
@@ -465,6 +468,7 @@ export function FeedReader() {
       // Create unsigned event (kind 1 = short text note)
       const unsignedEvent = {
         kind: 1,
+        pubkey,
         created_at: Math.floor(Date.now() / 1000),
         tags: [] as string[][],
         content: noteContent,
