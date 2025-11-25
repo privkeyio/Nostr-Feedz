@@ -62,6 +62,7 @@ export function FeedReader() {
   const [showViewOptions, setShowViewOptions] = useState(false)
   const [viewFilter, setViewFilter] = useState<'all' | 'unread' | 'read'>('all')
   const [sortOrder, setSortOrder] = useState<'newest' | 'oldest'>('newest')
+  const [tagSortOrder, setTagSortOrder] = useState<'alphabetical' | 'unread'>('alphabetical')
   const [markReadBehavior, setMarkReadBehavior] = useState<MarkReadBehavior>('on-open')
   const markReadTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   
@@ -221,7 +222,7 @@ export function FeedReader() {
   // Mutations
   const subscribeFeedMutation = api.feed.subscribeFeed.useMutation({
     onSuccess: () => {
-      refetchFeeds()
+      invalidateFeedData()
       setShowAddFeed(false)
       setFeedError('')
     },
@@ -232,7 +233,7 @@ export function FeedReader() {
   
   const unsubscribeFeedMutation = api.feed.unsubscribeFeed.useMutation({
     onSuccess: () => {
-      refetchFeeds()
+      invalidateFeedData()
       // If the deleted feed was selected, switch to "All Items"
       setSelectedFeed('all')
     },
@@ -240,19 +241,19 @@ export function FeedReader() {
   
   const refreshFeedMutation = api.feed.refreshFeed.useMutation({
     onSuccess: () => {
-      refetchFeeds()
+      invalidateFeedData()
     },
   })
   
   const refreshNostrFeedMutation = api.feed.refreshNostrFeed.useMutation({
     onSuccess: () => {
-      refetchFeeds()
+      invalidateFeedData()
     },
   })
   
   const updateTagsMutation = api.feed.updateSubscriptionTags.useMutation({
     onSuccess: () => {
-      refetchFeeds()
+      invalidateFeedData()
       setEditingFeedId(null)
       setEditTags([])
       setEditTagInput('')
@@ -263,6 +264,7 @@ export function FeedReader() {
     void utils.feed.getFeedItems.invalidate()
     void utils.feed.getFeeds.invalidate()
     void utils.feed.getFavorites.invalidate()
+    void utils.feed.getUserTags.invalidate()
   }
 
   const markAsReadMutation = api.feed.markAsRead.useMutation({
@@ -280,7 +282,7 @@ export function FeedReader() {
   
   const markAllAsReadMutation = api.feed.markFeedAsRead.useMutation({
     onSuccess: () => {
-      refetchFeeds()
+      invalidateFeedData()
     },
   })
   
@@ -336,9 +338,14 @@ export function FeedReader() {
           }
         }
         
-        return Array.from(tagMap.values()).sort((a, b) => a.tag.localeCompare(b.tag))
+        const tags = Array.from(tagMap.values())
+        return tagSortOrder === 'unread'
+          ? tags.sort((a, b) => b.unreadCount - a.unreadCount || a.tag.localeCompare(b.tag))
+          : tags.sort((a, b) => a.tag.localeCompare(b.tag))
       })()
-    : userTags
+    : tagSortOrder === 'unread'
+      ? [...userTags].sort((a, b) => b.unreadCount - a.unreadCount || a.tag.localeCompare(b.tag))
+      : userTags
   
   // Filter and sort feed items based on view options
   const allFeedItems = feedItemsData?.items || []
@@ -842,7 +849,33 @@ export function FeedReader() {
 
         {/* Tags List */}
         {sidebarView === 'tags' && (
-          <div className="flex-1 overflow-y-auto">
+          <div className="flex-1 overflow-y-auto flex flex-col">
+            {/* Tag Sort Options */}
+            <div className="px-4 py-2 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between flex-shrink-0">
+              <span className="text-xs font-medium text-slate-500 dark:text-slate-400">Sort by:</span>
+              <div className="flex bg-slate-100 dark:bg-slate-700 rounded-md p-0.5">
+                <button
+                  onClick={() => setTagSortOrder('alphabetical')}
+                  className={`px-2 py-1 text-xs rounded transition-colors ${
+                    tagSortOrder === 'alphabetical'
+                      ? 'bg-white dark:bg-slate-600 shadow-sm font-medium text-slate-900 dark:text-slate-100'
+                      : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-slate-100'
+                  }`}
+                >
+                  A-Z
+                </button>
+                <button
+                  onClick={() => setTagSortOrder('unread')}
+                  className={`px-2 py-1 text-xs rounded transition-colors ${
+                    tagSortOrder === 'unread'
+                      ? 'bg-white dark:bg-slate-600 shadow-sm font-medium text-slate-900 dark:text-slate-100'
+                      : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-slate-100'
+                  }`}
+                >
+                  Unread
+                </button>
+              </div>
+            </div>
             {filteredTags.length === 0 ? (
               <div className="p-4 text-center text-slate-500 dark:text-slate-400 text-sm">
                 {selectedTags.length > 0 
@@ -850,32 +883,34 @@ export function FeedReader() {
                   : 'No tags yet. Add tags when subscribing to feeds!'}
               </div>
             ) : (
-              filteredTags.map(({ tag, unreadCount, feedCount }) => (
-                <button
-                  key={tag}
-                  onClick={() => handleToggleTag(tag)}
-                  className={`w-full px-4 py-3 text-left hover:bg-slate-50 dark:hover:bg-slate-700/50 border-b border-slate-100 dark:border-slate-700 ${
-                    selectedTags.includes(tag) ? 'bg-blue-50 dark:bg-blue-900/30 border-l-4 border-l-blue-500' : ''
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center space-x-2">
-                      <span className="text-xs">🏷️</span>
-                      <span className="text-sm font-medium text-slate-800 dark:text-slate-100">
-                        {tag}
-                      </span>
-                    </div>
-                    <div className="flex items-center space-x-2 text-xs">
-                      <span className="text-slate-500 dark:text-slate-400">{feedCount} feeds</span>
-                      {unreadCount > 0 && (
-                        <span className="bg-blue-600 text-white rounded-full px-2 py-0.5 min-w-[20px] text-center">
-                          {unreadCount}
+              <div className="flex-1 overflow-y-auto">
+                {filteredTags.map(({ tag, unreadCount, feedCount }) => (
+                  <button
+                    key={tag}
+                    onClick={() => handleToggleTag(tag)}
+                    className={`w-full px-4 py-3 text-left hover:bg-slate-50 dark:hover:bg-slate-700/50 border-b border-slate-100 dark:border-slate-700 ${
+                      selectedTags.includes(tag) ? 'bg-blue-50 dark:bg-blue-900/30 border-l-4 border-l-blue-500' : ''
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center space-x-2">
+                        <span className="text-xs">🏷️</span>
+                        <span className="text-sm font-medium text-slate-800 dark:text-slate-100">
+                          {tag}
                         </span>
-                      )}
+                      </div>
+                      <div className="flex items-center space-x-2 text-xs">
+                        <span className="text-slate-500 dark:text-slate-400">{feedCount} feeds</span>
+                        {unreadCount > 0 && (
+                          <span className="bg-blue-600 text-white rounded-full px-2 py-0.5 min-w-[20px] text-center">
+                            {unreadCount}
+                          </span>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                </button>
-              ))
+                  </button>
+                ))}
+              </div>
             )}
           </div>
         )}
