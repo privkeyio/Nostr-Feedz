@@ -490,7 +490,9 @@ export function FeedReader() {
         'wss://relay.snort.social',
       ]
 
-      await Promise.any(pool.publish(relays, signedEvent))
+      // Publish and wait for at least one relay to confirm
+      const publishPromises = pool.publish(relays, signedEvent)
+      await Promise.race(publishPromises)
       pool.close(relays)
 
       setShareSuccess(true)
