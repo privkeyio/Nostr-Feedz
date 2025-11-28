@@ -2,13 +2,18 @@
 
 import { useNostrAuth } from '@/contexts/NostrAuthContext'
 import { useTheme } from '@/contexts/ThemeContext'
-import { useState, useEffect, useRef, useMemo } from 'react'
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { api } from '@/trpc/react'
 import { AddFeedModal } from './add-feed-modal'
 import { SettingsDialog, MarkReadBehavior } from './settings-dialog'
 import { FormattedContent } from './formatted-content'
 import { SimplePool } from 'nostr-tools'
+import { 
+  fetchSubscriptionList, 
+  mergeSubscriptionLists,
+  getLastSyncTime,
+} from '@/lib/nostr-sync'
 import type { inferRouterOutputs } from '@trpc/server'
 import type { AppRouter } from '@/server/api/root'
 
@@ -67,7 +72,14 @@ export function FeedReader() {
   const [markReadBehavior, setMarkReadBehavior] = useState<MarkReadBehavior>('on-open')
   const [isSharing, setIsSharing] = useState(false)
   const [shareSuccess, setShareSuccess] = useState(false)
+  const [showSyncPrompt, setShowSyncPrompt] = useState(false)
+  const [pendingSyncImport, setPendingSyncImport] = useState<Array<{ type: 'RSS' | 'NOSTR'; url: string; tags?: string[] }> | null>(null)
+  const [isRefreshingAll, setIsRefreshingAll] = useState(false)
+  const [lastRefreshTime, setLastRefreshTime] = useState<number | null>(null)
   const markReadTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const hasCheckedSyncRef = useRef(false)
+  const hasRefreshedOnLoginRef = useRef(false)
+  const refreshIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   
   // Mobile responsive state
   const [showSidebar, setShowSidebar] = useState(false)
@@ -83,6 +95,11 @@ export function FeedReader() {
     }
     if (stored === 'on-open' || stored === 'after-10s' || stored === 'never') {
       setMarkReadBehavior(stored)
+    }
+    // Load last refresh time from localStorage
+    const storedRefreshTime = localStorage.getItem('last_feed_refresh')
+    if (storedRefreshTime) {
+      setLastRefreshTime(parseInt(storedRefreshTime, 10))
     }
   }, [])
 
@@ -135,6 +152,44 @@ export function FeedReader() {
   
   // Filter out any feeds with invalid IDs
   const feeds = feedsData.filter((f: any) => f && f.id && typeof f.id === 'string' && f.id !== 'undefined')
+
+  // Auto-fetch sync on login - check if user has remote subscriptions to import
+  useEffect(() => {
+    const checkRemoteSync = async () => {
+      // Only check once per session and when feeds are loaded
+      if (hasCheckedSyncRef.current || !user?.npub || feedsData === undefined) return
+      hasCheckedSyncRef.current = true
+
+      // Skip if synced recently (within last hour)
+      const lastSync = getLastSyncTime()
+      if (lastSync && Date.now() / 1000 - lastSync < 3600) return
+
+      try {
+        const result = await fetchSubscriptionList(user.npub)
+        if (!result.success || !result.data) return
+        
+        // Check if there are new subscriptions to import
+        if (result.data.rss.length === 0 && result.data.nostr.length === 0) return
+        
+        const currentFeeds = feeds.map((f) => ({
+          type: f.type,
+          url: f.url || f.npub || '',
+          tags: f.tags,
+        }))
+        
+        const mergeResult = mergeSubscriptionLists(currentFeeds, result.data)
+        
+        if (mergeResult.toAdd.length > 0) {
+          setPendingSyncImport(mergeResult.toAdd)
+          setShowSyncPrompt(true)
+        }
+      } catch (error) {
+        console.error('Auto-sync check failed:', error)
+      }
+    }
+    
+    checkRemoteSync()
+  }, [user?.npub, feedsData])
   
   const { data: userTags = [] } = api.feed.getUserTags.useQuery(undefined, {
     enabled: !!user && !!user.npub,
@@ -253,6 +308,23 @@ export function FeedReader() {
       invalidateFeedData()
     },
   })
+
+  const refreshAllFeedsMutation = api.feed.refreshAllFeeds.useMutation({
+    onSuccess: (result) => {
+      invalidateFeedData()
+      const now = Date.now()
+      setLastRefreshTime(now)
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('last_feed_refresh', now.toString())
+      }
+      console.log(`✅ Refreshed ${result.refreshed}/${result.total} feeds, ${result.newItems} new items`)
+      setIsRefreshingAll(false)
+    },
+    onError: (error) => {
+      console.error('Failed to refresh feeds:', error)
+      setIsRefreshingAll(false)
+    },
+  })
   
   const updateTagsMutation = api.feed.updateSubscriptionTags.useMutation({
     onSuccess: () => {
@@ -269,6 +341,62 @@ export function FeedReader() {
     void utils.feed.getFavorites.invalidate()
     void utils.feed.getUserTags.invalidate()
   }
+
+  // Auto-refresh all feeds function
+  const handleRefreshAllFeeds = useCallback(() => {
+    if (isRefreshingAll || !user?.npub) return
+    setIsRefreshingAll(true)
+    refreshAllFeedsMutation.mutate()
+  }, [isRefreshingAll, user?.npub, refreshAllFeedsMutation])
+
+  // Auto-refresh on login (once per session)
+  // Separate effect to detect when feeds are first loaded
+  const [feedsLoaded, setFeedsLoaded] = useState(false)
+  
+  useEffect(() => {
+    if (feeds.length > 0 && !feedsLoaded) {
+      setFeedsLoaded(true)
+    }
+  }, [feeds.length, feedsLoaded])
+  
+  useEffect(() => {
+    if (!user?.npub || hasRefreshedOnLoginRef.current || !feedsLoaded) return
+    
+    // Check if we've refreshed recently (within 5 minutes)
+    const now = Date.now()
+    const fiveMinutes = 5 * 60 * 1000
+    if (lastRefreshTime && now - lastRefreshTime < fiveMinutes) {
+      hasRefreshedOnLoginRef.current = true
+      return
+    }
+
+    hasRefreshedOnLoginRef.current = true
+    console.log('🔄 Auto-refreshing feeds on login...')
+    handleRefreshAllFeeds()
+  }, [user?.npub, feedsLoaded, lastRefreshTime, handleRefreshAllFeeds])
+
+  // Set up 30-minute refresh interval
+  useEffect(() => {
+    if (!user?.npub) return
+
+    // Clear any existing interval
+    if (refreshIntervalRef.current) {
+      clearInterval(refreshIntervalRef.current)
+    }
+
+    // Set up new interval (30 minutes = 1800000ms)
+    const thirtyMinutes = 30 * 60 * 1000
+    refreshIntervalRef.current = setInterval(() => {
+      console.log('🔄 Auto-refreshing feeds (30-minute interval)...')
+      handleRefreshAllFeeds()
+    }, thirtyMinutes)
+
+    return () => {
+      if (refreshIntervalRef.current) {
+        clearInterval(refreshIntervalRef.current)
+      }
+    }
+  }, [user?.npub, handleRefreshAllFeeds])
 
   const markAsReadMutation = api.feed.markAsRead.useMutation({
     onSuccess: (_data, { itemId }) => {
@@ -504,6 +632,30 @@ export function FeedReader() {
       setIsSharing(false)
     }
   }
+
+  // Handle importing feeds from Nostr sync
+  const handleImportFeeds = async (feedsToImport: Array<{ type: 'RSS' | 'NOSTR'; url: string; tags?: string[] }>) => {
+    for (const feed of feedsToImport) {
+      try {
+        if (feed.type === 'RSS') {
+          await subscribeFeedMutation.mutateAsync({
+            type: 'RSS',
+            url: feed.url,
+            tags: feed.tags,
+          })
+        } else {
+          // For Nostr feeds, the url field contains the npub
+          await subscribeFeedMutation.mutateAsync({
+            type: 'NOSTR',
+            npub: feed.url,
+            tags: feed.tags,
+          })
+        }
+      } catch (error) {
+        console.error(`Failed to import feed: ${feed.url}`, error)
+      }
+    }
+  }
   
   // Handle removing a feed
   const handleRemoveFeed = (feedId: string, feedTitle: string) => {
@@ -687,6 +839,14 @@ export function FeedReader() {
             <h1 className="text-lg font-semibold text-slate-800 dark:text-slate-100">Nostr Feedz</h1>
             <div className="flex items-center gap-2">
               <button
+                onClick={handleRefreshAllFeeds}
+                disabled={isRefreshingAll}
+                className={`text-slate-600 dark:text-slate-300 hover:text-slate-800 dark:hover:text-slate-100 text-sm ${isRefreshingAll ? 'animate-spin' : ''}`}
+                title={isRefreshingAll ? 'Refreshing...' : `Refresh all feeds${lastRefreshTime ? ` (last: ${new Date(lastRefreshTime).toLocaleTimeString()})` : ''}`}
+              >
+                🔄
+              </button>
+              <button
                 onClick={toggleTheme}
                 className="text-slate-600 dark:text-slate-300 hover:text-slate-800 dark:hover:text-slate-100 text-sm"
                 title="Toggle theme"
@@ -708,8 +868,9 @@ export function FeedReader() {
               </button>
             </div>
           </div>
-          <div className="text-xs text-slate-600 dark:text-slate-400 truncate">
-            {user?.npub}
+          <div className="text-xs text-slate-600 dark:text-slate-400 truncate flex items-center gap-2">
+            <span>{user?.npub}</span>
+            {isRefreshingAll && <span className="text-blue-500">Refreshing feeds...</span>}
           </div>
         </div>
 
@@ -1368,7 +1529,58 @@ export function FeedReader() {
         onClose={() => setShowSettings(false)}
         markReadBehavior={markReadBehavior}
         onChangeMarkReadBehavior={handleMarkReadBehaviorChange}
+        feeds={feeds.map((f) => ({ 
+          type: f.type, 
+          url: f.url || f.npub || '', 
+          tags: f.tags 
+        }))}
+        userPubkey={user?.npub || user?.pubkey}
+        onImportFeeds={handleImportFeeds}
       />
+
+      {/* Sync Prompt Dialog */}
+      {showSyncPrompt && pendingSyncImport && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white dark:bg-slate-800 rounded-lg shadow-xl w-96 max-w-[90vw] max-h-[80vh] flex flex-col">
+            <div className="p-6 border-b border-slate-200 dark:border-slate-700">
+              <h2 className="text-xl font-semibold text-slate-800 dark:text-slate-100">📡 Sync Available</h2>
+            </div>
+            <div className="p-6 overflow-y-auto">
+              <p className="text-slate-600 dark:text-slate-300 mb-4">
+                Found {pendingSyncImport.length} subscription(s) from another device. Would you like to import them?
+              </p>
+              <ul className="text-sm text-slate-600 dark:text-slate-400 mb-4 max-h-32 overflow-y-auto space-y-1">
+                {pendingSyncImport.map((feed, i) => (
+                  <li key={i} className="truncate">
+                    • [{feed.type}] {feed.url}
+                  </li>
+                ))}
+              </ul>
+            </div>
+            <div className="p-6 border-t border-slate-200 dark:border-slate-700 flex gap-3 justify-end">
+              <button
+                onClick={() => {
+                  setShowSyncPrompt(false)
+                  setPendingSyncImport(null)
+                }}
+                className="px-4 py-2 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-md"
+              >
+                Not Now
+              </button>
+              <button
+                onClick={async () => {
+                  await handleImportFeeds(pendingSyncImport)
+                  setShowSyncPrompt(false)
+                  setPendingSyncImport(null)
+                }}
+                className="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700"
+              >
+                Import All
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Edit Tags Dialog */}
       {editingFeedId && (

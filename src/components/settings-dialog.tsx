@@ -1,8 +1,29 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import {
+  publishSubscriptionList,
+  fetchSubscriptionList,
+  buildSubscriptionListFromFeeds,
+  mergeSubscriptionLists,
+  getLastSyncTime,
+  setLastSyncTime,
+  type SubscriptionList,
+} from '@/lib/nostr-sync'
+import type { UnsignedEvent, Event } from 'nostr-tools'
 
 export type MarkReadBehavior = 'on-open' | 'after-10s' | 'never'
+
+// Sync state type
+export interface SyncState {
+  status: 'idle' | 'syncing' | 'success' | 'error'
+  lastSync: number | null
+  error?: string
+  pendingImport?: {
+    toAdd: Array<{ type: 'RSS' | 'NOSTR'; url: string; tags?: string[] }>
+    localOnly: Array<{ type: 'RSS' | 'NOSTR' | 'NOSTR_VIDEO'; url: string }>
+  }
+}
 
 interface Relay {
   url: string
@@ -52,12 +73,19 @@ interface SettingsDialogProps {
   onClose: () => void
   markReadBehavior: MarkReadBehavior
   onChangeMarkReadBehavior: (behavior: MarkReadBehavior) => void
+  feeds?: Array<{ type: 'RSS' | 'NOSTR' | 'NOSTR_VIDEO'; url: string; tags?: string[] }>
+  userPubkey?: string
+  onImportFeeds?: (feeds: Array<{ type: 'RSS' | 'NOSTR'; url: string; tags?: string[] }>) => Promise<void>
 }
 
-export function SettingsDialog({ isOpen, onClose, markReadBehavior, onChangeMarkReadBehavior }: SettingsDialogProps) {
+export function SettingsDialog({ isOpen, onClose, markReadBehavior, onChangeMarkReadBehavior, feeds = [], userPubkey, onImportFeeds }: SettingsDialogProps) {
   const [relays, setRelays] = useState<Relay[]>([])
   const [newRelayUrl, setNewRelayUrl] = useState('')
   const [error, setError] = useState('')
+  const [syncState, setSyncState] = useState<SyncState>({
+    status: 'idle',
+    lastSync: null,
+  })
 
   // Load relays from localStorage on mount
   useEffect(() => {
@@ -73,6 +101,12 @@ export function SettingsDialog({ isOpen, onClose, markReadBehavior, onChangeMark
     } else {
       setRelays(DEFAULT_RELAYS.map(url => ({ url, status: 'disconnected' as const })))
     }
+    
+    // Load last sync time
+    const lastSync = getLastSyncTime()
+    if (lastSync) {
+      setSyncState(prev => ({ ...prev, lastSync }))
+    }
   }, [])
 
   // Save relays to localStorage whenever they change
@@ -81,6 +115,133 @@ export function SettingsDialog({ isOpen, onClose, markReadBehavior, onChangeMark
       localStorage.setItem('nostr_relays', JSON.stringify(relays.map(r => r.url)))
     }
   }, [relays])
+
+  // Export subscriptions to Nostr
+  const handleExportToNostr = async () => {
+    if (!window.nostr) {
+      alert('Please install a Nostr browser extension (like Alby or nos2x) to sync.')
+      return
+    }
+
+    setSyncState(prev => ({ ...prev, status: 'syncing', error: undefined }))
+
+    try {
+      const subscriptionList = buildSubscriptionListFromFeeds(feeds)
+      
+      const signEvent = async (event: UnsignedEvent): Promise<Event> => {
+        const pubkey = await window.nostr!.getPublicKey()
+        const signedEvent = await window.nostr!.signEvent({ ...event, pubkey })
+        if (!signedEvent) throw new Error('Failed to sign event')
+        return signedEvent as Event
+      }
+
+      const result = await publishSubscriptionList(subscriptionList, signEvent)
+      
+      if (result.success) {
+        const now = Math.floor(Date.now() / 1000)
+        setLastSyncTime(now)
+        setSyncState({ status: 'success', lastSync: now })
+        setTimeout(() => setSyncState(prev => ({ ...prev, status: 'idle' })), 3000)
+      } else {
+        setSyncState({ status: 'error', lastSync: syncState.lastSync, error: result.error })
+      }
+    } catch (error) {
+      setSyncState({
+        status: 'error',
+        lastSync: syncState.lastSync,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      })
+    }
+  }
+
+  // Import subscriptions from Nostr
+  const handleImportFromNostr = async () => {
+    if (!userPubkey) {
+      alert('Please sign in to import subscriptions.')
+      return
+    }
+
+    setSyncState(prev => ({ ...prev, status: 'syncing', error: undefined }))
+
+    try {
+      const result = await fetchSubscriptionList(userPubkey)
+      
+      if (!result.success) {
+        setSyncState({
+          status: 'error',
+          lastSync: syncState.lastSync,
+          error: result.error,
+        })
+        return
+      }
+
+      if (!result.data || (result.data.rss.length === 0 && result.data.nostr.length === 0)) {
+        setSyncState({
+          status: 'success',
+          lastSync: syncState.lastSync,
+        })
+        alert('No subscriptions found on Nostr. Export your current subscriptions first.')
+        setTimeout(() => setSyncState(prev => ({ ...prev, status: 'idle' })), 3000)
+        return
+      }
+
+      // Merge with current feeds
+      const mergeResult = mergeSubscriptionLists(feeds, result.data)
+      
+      if (mergeResult.toAdd.length === 0) {
+        setSyncState({ status: 'success', lastSync: syncState.lastSync })
+        alert('All remote subscriptions are already in your feed list.')
+        setTimeout(() => setSyncState(prev => ({ ...prev, status: 'idle' })), 3000)
+        return
+      }
+
+      // Show pending import
+      setSyncState({
+        status: 'idle',
+        lastSync: syncState.lastSync,
+        pendingImport: mergeResult,
+      })
+    } catch (error) {
+      setSyncState({
+        status: 'error',
+        lastSync: syncState.lastSync,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      })
+    }
+  }
+
+  // Confirm import
+  const handleConfirmImport = async () => {
+    if (!syncState.pendingImport || !onImportFeeds) return
+    
+    setSyncState(prev => ({ ...prev, status: 'syncing' }))
+    
+    try {
+      await onImportFeeds(syncState.pendingImport.toAdd)
+      const now = Math.floor(Date.now() / 1000)
+      setLastSyncTime(now)
+      setSyncState({ status: 'success', lastSync: now })
+      setTimeout(() => setSyncState(prev => ({ ...prev, status: 'idle' })), 3000)
+    } catch (error) {
+      setSyncState({
+        status: 'error',
+        lastSync: syncState.lastSync,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      })
+    }
+  }
+
+  // Cancel import
+  const handleCancelImport = () => {
+    setSyncState(prev => ({ ...prev, pendingImport: undefined }))
+  }
+
+  // Format timestamp for display
+  const formatLastSync = (timestamp: number | null) => {
+    if (!timestamp) return 'Never'
+    const date = new Date(timestamp * 1000)
+    return date.toLocaleString()
+  }
 
   const validateRelayUrl = (url: string): boolean => {
     if (!url.trim()) {
@@ -281,6 +442,97 @@ export function SettingsDialog({ isOpen, onClose, markReadBehavior, onChangeMark
                   </label>
                 ))}
               </div>
+            </div>
+
+            {/* Sync Section */}
+            <div className="pt-4 border-t border-slate-200 dark:border-slate-700">
+              <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-2">Subscription Sync</h3>
+              <p className="text-sm text-slate-600 dark:text-slate-400 mb-4">
+                Sync your RSS and Nostr subscriptions across devices using Nostr events (kind 30404).
+              </p>
+              
+              {/* Last sync time */}
+              <div className="text-sm text-slate-500 dark:text-slate-400 mb-4">
+                Last synced: {formatLastSync(syncState.lastSync)}
+              </div>
+
+              {/* Sync status */}
+              {syncState.status === 'syncing' && (
+                <div className="flex items-center gap-2 p-3 bg-blue-50 dark:bg-blue-900/30 rounded-lg mb-4">
+                  <svg className="animate-spin h-5 w-5 text-blue-600 dark:text-blue-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  <span className="text-blue-700 dark:text-blue-300">Syncing...</span>
+                </div>
+              )}
+
+              {syncState.status === 'success' && !syncState.pendingImport && (
+                <div className="flex items-center gap-2 p-3 bg-green-50 dark:bg-green-900/30 rounded-lg mb-4">
+                  <span className="text-green-600 dark:text-green-400">✓</span>
+                  <span className="text-green-700 dark:text-green-300">Sync successful!</span>
+                </div>
+              )}
+
+              {syncState.status === 'error' && (
+                <div className="flex items-center gap-2 p-3 bg-red-50 dark:bg-red-900/30 rounded-lg mb-4">
+                  <span className="text-red-600 dark:text-red-400">⚠</span>
+                  <span className="text-red-700 dark:text-red-300">Error: {syncState.error}</span>
+                </div>
+              )}
+
+              {/* Pending import confirmation */}
+              {syncState.pendingImport && (
+                <div className="p-4 bg-yellow-50 dark:bg-yellow-900/30 rounded-lg mb-4">
+                  <p className="font-medium text-yellow-800 dark:text-yellow-200 mb-2">
+                    Found {syncState.pendingImport.toAdd.length} new subscription(s) to import:
+                  </p>
+                  <ul className="text-sm text-yellow-700 dark:text-yellow-300 mb-3 max-h-32 overflow-y-auto">
+                    {syncState.pendingImport.toAdd.map((feed, i) => (
+                      <li key={i} className="truncate">
+                        • [{feed.type}] {feed.url}
+                      </li>
+                    ))}
+                  </ul>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={handleConfirmImport}
+                      className="px-3 py-1.5 bg-green-600 text-white rounded-md hover:bg-green-700 text-sm"
+                    >
+                      Import All
+                    </button>
+                    <button
+                      onClick={handleCancelImport}
+                      className="px-3 py-1.5 bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-md hover:bg-slate-300 dark:hover:bg-slate-600 text-sm"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Sync buttons */}
+              <div className="flex flex-wrap gap-3">
+                <button
+                  onClick={handleExportToNostr}
+                  disabled={syncState.status === 'syncing' || feeds.length === 0}
+                  className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <span>⬆</span>
+                  Export to Nostr
+                </button>
+                <button
+                  onClick={handleImportFromNostr}
+                  disabled={syncState.status === 'syncing' || !userPubkey}
+                  className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <span>⬇</span>
+                  Import from Nostr
+                </button>
+              </div>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-2">
+                Requires a Nostr browser extension (Alby, nos2x, etc.)
+              </p>
             </div>
 
             {/* Other Settings Can Go Here */}

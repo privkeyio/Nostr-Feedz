@@ -1162,4 +1162,132 @@ export const feedRouter = createTRPCRouter({
       const profiles = await nostrFetcher.getPopularUsers(input.limit)
       return { profiles }
     }),
+
+  // Refresh all user's feeds at once
+  refreshAllFeeds: protectedProcedure
+    .mutation(async ({ ctx }) => {
+      // Get all user's subscriptions
+      const subscriptions = await ctx.db.subscription.findMany({
+        where: { userPubkey: ctx.nostrPubkey },
+        include: { feed: true },
+      })
+
+      const results = {
+        total: subscriptions.length,
+        refreshed: 0,
+        newItems: 0,
+        errors: [] as string[],
+      }
+
+      for (const sub of subscriptions) {
+        const feed = sub.feed
+        try {
+          if (feed.type === 'RSS' && feed.url) {
+            // Refresh RSS feed
+            const parsedFeed = await fetchAndParseFeed(feed.url)
+            
+            await ctx.db.feed.update({
+              where: { id: feed.id },
+              data: { lastFetchedAt: new Date() },
+            })
+
+            for (const item of parsedFeed.items) {
+              const existingItem = await ctx.db.feedItem.findFirst({
+                where: {
+                  feedId: feed.id,
+                  OR: [
+                    { url: item.url },
+                    { guid: item.guid },
+                  ].filter(c => c.url || c.guid),
+                },
+              })
+
+              if (!existingItem) {
+                await ctx.db.feedItem.create({
+                  data: {
+                    feedId: feed.id,
+                    title: item.title,
+                    content: item.content,
+                    author: item.author,
+                    publishedAt: item.publishedAt,
+                    url: item.url,
+                    guid: item.guid,
+                  },
+                })
+                results.newItems++
+              }
+            }
+            results.refreshed++
+          } else if ((feed.type === 'NOSTR' || feed.type === 'NOSTR_VIDEO') && feed.npub) {
+            // Refresh Nostr feed
+            const nostrFetcher = getNostrFetcher()
+            const lastFetched = feed.lastFetchedAt
+
+            let posts: any[] = []
+            let videos: any[] = []
+            
+            if (feed.type === 'NOSTR') {
+              posts = await nostrFetcher.fetchLongFormPosts(feed.npub, 50, lastFetched || undefined)
+            } else {
+              videos = await nostrFetcher.fetchVideoEvents(feed.npub, 50, lastFetched || undefined)
+            }
+
+            await ctx.db.feed.update({
+              where: { id: feed.id },
+              data: { lastFetchedAt: new Date() },
+            })
+
+            for (const post of posts) {
+              const existingItem = await ctx.db.feedItem.findFirst({
+                where: { feedId: feed.id, guid: post.id },
+              })
+
+              if (!existingItem) {
+                await ctx.db.feedItem.create({
+                  data: {
+                    feedId: feed.id,
+                    title: post.title,
+                    content: post.content,
+                    author: post.author,
+                    publishedAt: post.publishedAt,
+                    url: post.url,
+                    guid: post.id,
+                  },
+                })
+                results.newItems++
+              }
+            }
+
+            for (const video of videos) {
+              const existingItem = await ctx.db.feedItem.findFirst({
+                where: { feedId: feed.id, guid: video.id },
+              })
+
+              if (!existingItem) {
+                await ctx.db.feedItem.create({
+                  data: {
+                    feedId: feed.id,
+                    title: video.title,
+                    content: video.content,
+                    author: video.author,
+                    publishedAt: video.publishedAt,
+                    url: video.videoUrl,
+                    guid: video.id,
+                    embedUrl: video.embedUrl,
+                    thumbnail: video.thumbnail,
+                  },
+                })
+                results.newItems++
+              }
+            }
+            results.refreshed++
+          }
+        } catch (error) {
+          results.errors.push(`Failed to refresh ${feed.title}: ${error instanceof Error ? error.message : 'Unknown error'}`)
+          console.error(`Error refreshing feed ${feed.id}:`, error)
+        }
+      }
+
+      return results
+    }),
 })

@@ -32,7 +32,7 @@ export function detectVideoPlatform(url: string): VideoPlatform {
 
 /**
  * Extract YouTube video ID from various URL formats
- * Supports: youtube.com/watch?v=ID, youtu.be/ID, youtube.com/embed/ID, etc.
+ * Supports: youtube.com/watch?v=ID, youtu.be/ID, youtube.com/embed/ID, youtube.com/shorts/ID, etc.
  */
 export function extractYouTubeVideoId(url: string): string | null {
   try {
@@ -47,6 +47,12 @@ export function extractYouTubeVideoId(url: string): string | null {
     // youtube.com/watch?v=VIDEO_ID
     if (urlObj.searchParams.has('v')) {
       return urlObj.searchParams.get('v')
+    }
+    
+    // youtube.com/shorts/VIDEO_ID (YouTube Shorts)
+    const shortsMatch = urlObj.pathname.match(/\/shorts\/([^/?]+)/)
+    if (shortsMatch) {
+      return shortsMatch[1] || null
     }
     
     // youtube.com/embed/VIDEO_ID or youtube.com/v/VIDEO_ID
