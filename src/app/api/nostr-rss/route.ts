@@ -9,6 +9,94 @@ const DEFAULT_RELAYS = [
   'wss://nos.lol',
 ];
 
+// Habla.news is a dedicated long-form content viewer that handles naddr links well
+const NOSTR_ARTICLE_VIEWER_URL = 'https://habla.news';
+
+/**
+ * Convert Markdown content to HTML for RSS readers
+ * Handles common Markdown syntax used in Nostr long-form content
+ */
+function convertMarkdownToHtml(markdown: string, featuredImage?: string): string {
+  let html = markdown;
+  
+  // Escape HTML entities first (but preserve intentional HTML)
+  html = html
+    .replace(/&(?!amp;|lt;|gt;|quot;|#)/g, '&amp;')
+    
+  // Code blocks (fenced) - must be done before other transformations
+  html = html.replace(/```(\w*)\n([\s\S]*?)```/g, (_, lang, code) => {
+    const escapedCode = code
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+    return `<pre><code class="language-${lang || 'text'}">${escapedCode}</code></pre>`;
+  });
+  
+  // Inline code
+  html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+  
+  // Headers (h1-h6)
+  html = html.replace(/^######\s+(.+)$/gm, '<h6>$1</h6>');
+  html = html.replace(/^#####\s+(.+)$/gm, '<h5>$1</h5>');
+  html = html.replace(/^####\s+(.+)$/gm, '<h4>$1</h4>');
+  html = html.replace(/^###\s+(.+)$/gm, '<h3>$1</h3>');
+  html = html.replace(/^##\s+(.+)$/gm, '<h2>$1</h2>');
+  html = html.replace(/^#\s+(.+)$/gm, '<h1>$1</h1>');
+  
+  // Images - ![alt](url)
+  html = html.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img src="$2" alt="$1" style="max-width: 100%; height: auto;" />');
+  
+  // Links - [text](url)
+  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>');
+  
+  // Bold - **text** or __text__
+  html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  html = html.replace(/__([^_]+)__/g, '<strong>$1</strong>');
+  
+  // Italic - *text* or _text_
+  html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+  html = html.replace(/_([^_]+)_/g, '<em>$1</em>');
+  
+  // Strikethrough - ~~text~~
+  html = html.replace(/~~([^~]+)~~/g, '<del>$1</del>');
+  
+  // Blockquotes
+  html = html.replace(/^>\s+(.+)$/gm, '<blockquote>$1</blockquote>');
+  // Merge consecutive blockquotes
+  html = html.replace(/<\/blockquote>\n<blockquote>/g, '\n');
+  
+  // Horizontal rules
+  html = html.replace(/^[-*_]{3,}$/gm, '<hr />');
+  
+  // Unordered lists
+  html = html.replace(/^[\*\-]\s+(.+)$/gm, '<li>$1</li>');
+  html = html.replace(/(<li>.*<\/li>\n?)+/g, '<ul>$&</ul>');
+  
+  // Ordered lists
+  html = html.replace(/^\d+\.\s+(.+)$/gm, '<li>$1</li>');
+  
+  // Paragraphs - wrap remaining text blocks
+  // Split by double newlines and wrap non-HTML blocks
+  const blocks = html.split(/\n\n+/);
+  html = blocks.map(block => {
+    const trimmed = block.trim();
+    if (!trimmed) return '';
+    // Don't wrap if already an HTML block element
+    if (/^<(h[1-6]|p|div|ul|ol|li|blockquote|pre|hr|img)/i.test(trimmed)) {
+      return trimmed;
+    }
+    // Wrap in paragraph, converting single newlines to <br>
+    return `<p>${trimmed.replace(/\n/g, '<br />')}</p>`;
+  }).join('\n\n');
+  
+  // Add featured image at the top if provided and not already in content
+  if (featuredImage && !html.includes(featuredImage)) {
+    html = `<img src="${featuredImage}" alt="Featured image" style="max-width: 100%; height: auto; margin-bottom: 1em;" />\n\n${html}`;
+  }
+  
+  return html;
+}
+
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const npub = searchParams.get('npub');
@@ -75,7 +163,7 @@ export async function GET(request: NextRequest) {
       title: `${authorName}'s Nostr Feed`,
       description: `Long-form articles from ${authorName} on Nostr. ${authorAbout}`,
       feed_url: request.url,
-      site_url: `https://nostr.guru/p/${npub}`,
+      site_url: `https://njump.me/${npub}`,
       image_url: authorPicture,
       managingEditor: authorName,
       webMaster: authorName,
@@ -83,21 +171,51 @@ export async function GET(request: NextRequest) {
       language: 'en',
       pubDate: new Date().toUTCString(),
       ttl: 60,
+      custom_namespaces: {
+        'content': 'http://purl.org/rss/1.0/modules/content/',
+      },
     });
 
     for (const event of events) {
       const title = event.tags.find((t: string[]) => t[0] === 'title')?.[1] || 'Untitled';
       const published = event.tags.find((t: string[]) => t[0] === 'published_at')?.[1];
       const summary = event.tags.find((t: string[]) => t[0] === 'summary')?.[1];
-      const eventId = nip19.neventEncode({ id: event.id, relays: DEFAULT_RELAYS.slice(0,2) });
+      const dTag = event.tags.find((t: string[]) => t[0] === 'd')?.[1];
+      const image = event.tags.find((t: string[]) => t[0] === 'image')?.[1];
+      
+      // The full article content is in event.content (usually Markdown)
+      const fullContent = event.content || '';
+      
+      // Convert Markdown to simple HTML for RSS readers
+      // Basic conversion: paragraphs, headers, links, bold, italic, code, images
+      const htmlContent = convertMarkdownToHtml(fullContent, image);
+      
+      // Build a proper naddr URL for long-form articles using Habla.news
+      // naddr includes: kind, pubkey, d-tag identifier
+      let articleUrl: string;
+      if (dTag) {
+        const naddr = nip19.naddrEncode({
+          kind: 30023,
+          pubkey: pubkey,
+          identifier: dTag,
+        });
+        articleUrl = `${NOSTR_ARTICLE_VIEWER_URL}/a/${naddr}`;
+      } else {
+        // Fallback to njump.me with nevent if no d-tag
+        const nevent = nip19.neventEncode({ id: event.id, relays: DEFAULT_RELAYS.slice(0, 2) });
+        articleUrl = `https://njump.me/${nevent}`;
+      }
 
       feed.item({
         title: title,
-        description: summary || event.content.slice(0, 200),
-        url: `https://nostr.guru/e/${eventId}`,
+        description: summary || fullContent.slice(0, 300) + '...',
+        url: articleUrl,
         guid: event.id,
         author: authorName,
         date: published ? new Date(parseInt(published) * 1000) : new Date(event.created_at * 1000),
+        custom_elements: [
+          { 'content:encoded': { _cdata: htmlContent } },
+        ],
       });
     }
 
