@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { api } from '@/trpc/react'
+import type { OrganizationMode } from './settings-dialog'
 
 interface NostrProfile {
   npub: string
@@ -14,15 +15,24 @@ interface NostrProfile {
   verified?: boolean
 }
 
+interface Category {
+  id: string
+  name: string
+  color: string | null
+  icon: string | null
+}
+
 interface AddFeedModalProps {
   isOpen: boolean
   onClose: () => void
-  onAddFeed: (type: 'RSS' | 'NOSTR', url?: string, npub?: string, title?: string, tags?: string[]) => void
+  onAddFeed: (type: 'RSS' | 'NOSTR', url?: string, npub?: string, title?: string, tags?: string[], categoryId?: string) => void
   isLoading?: boolean
   error?: string
+  organizationMode: OrganizationMode
+  categories?: Category[]
 }
 
-export function AddFeedModal({ isOpen, onClose, onAddFeed, isLoading = false, error: externalError }: AddFeedModalProps) {
+export function AddFeedModal({ isOpen, onClose, onAddFeed, isLoading = false, error: externalError, organizationMode, categories = [] }: AddFeedModalProps) {
   const [feedType, setFeedType] = useState<'RSS' | 'NOSTR'>('RSS')
   const [rssUrl, setRssUrl] = useState('')
   const [nostrSearch, setNostrSearch] = useState('')
@@ -33,6 +43,7 @@ export function AddFeedModal({ isOpen, onClose, onAddFeed, isLoading = false, er
   const [internalError, setInternalError] = useState('')
   const [tagInput, setTagInput] = useState('')
   const [tags, setTags] = useState<string[]>([])
+  const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null)
   
   const error = externalError || internalError
   
@@ -116,7 +127,7 @@ export function AddFeedModal({ isOpen, onClose, onAddFeed, isLoading = false, er
       if (!rssUrl.trim()) return
       
       // Clear any previous errors and let tRPC mutation handle validation
-      onAddFeed('RSS', rssUrl, undefined, undefined, tags)
+      onAddFeed('RSS', rssUrl, undefined, undefined, tags, selectedCategoryId ?? undefined)
     } else {
       const npub = manualNpub.trim()
       if (!npub) {
@@ -127,7 +138,7 @@ export function AddFeedModal({ isOpen, onClose, onAddFeed, isLoading = false, er
         setInternalError('Invalid npub format. Must start with npub1')
         return
       }
-      onAddFeed('NOSTR', undefined, npub, undefined, tags)
+      onAddFeed('NOSTR', undefined, npub, undefined, tags, selectedCategoryId ?? undefined)
     }
     handleClose()
   }
@@ -169,6 +180,7 @@ export function AddFeedModal({ isOpen, onClose, onAddFeed, isLoading = false, er
     setSearchResults([])
     setTagInput('')
     setTags([])
+    setSelectedCategoryId(null)
   }
 
   if (!isOpen) return null
@@ -412,48 +424,76 @@ export function AddFeedModal({ isOpen, onClose, onAddFeed, isLoading = false, er
             </div>
           )}
 
-          {/* Tags Input */}
-          <div>
-            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
-              Tags (optional)
-            </label>
-            <div className="flex space-x-2">
-              <input
-                type="text"
-                value={tagInput}
-                onChange={(e) => setTagInput(e.target.value)}
-                onKeyDown={handleTagInputKeyDown}
-                placeholder="Add a tag..."
-                className="flex-1 px-3 py-2 bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-              <button
-                type="button"
-                onClick={handleAddTag}
-                className="px-4 py-2 bg-slate-100 dark:bg-slate-600 hover:bg-slate-200 dark:hover:bg-slate-500 rounded-md text-sm font-medium text-slate-700 dark:text-slate-200"
+          {/* Category Selection - shown when using categories mode */}
+          {organizationMode === 'categories' && (
+            <div className="mt-4">
+              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
+                Category (optional)
+              </label>
+              <select
+                value={selectedCategoryId ?? ''}
+                onChange={(e) => setSelectedCategoryId(e.target.value || null)}
+                className="w-full px-3 py-2 bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
-                Add
-              </button>
-            </div>
-            {tags.length > 0 && (
-              <div className="flex flex-wrap gap-2 mt-2">
-                {tags.map((tag) => (
-                  <span
-                    key={tag}
-                    className="inline-flex items-center px-3 py-1 bg-blue-100 dark:bg-blue-500/30 text-blue-800 dark:text-blue-200 rounded-full text-sm"
-                  >
-                    {tag}
-                    <button
-                      type="button"
-                      onClick={() => handleRemoveTag(tag)}
-                      className="ml-2 hover:text-blue-900 dark:hover:text-blue-100"
-                    >
-                      ×
-                    </button>
-                  </span>
+                <option value="">No category</option>
+                {categories.map((cat) => (
+                  <option key={cat.id} value={cat.id}>
+                    {cat.icon || '📁'} {cat.name}
+                  </option>
                 ))}
+              </select>
+              {categories.length === 0 && (
+                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                  No categories yet. Create them in Settings.
+                </p>
+              )}
+            </div>
+          )}
+
+          {/* Tags Input - shown when using tags mode */}
+          {organizationMode === 'tags' && (
+            <div className="mt-4">
+              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
+                Tags (optional)
+              </label>
+              <div className="flex space-x-2">
+                <input
+                  type="text"
+                  value={tagInput}
+                  onChange={(e) => setTagInput(e.target.value)}
+                  onKeyDown={handleTagInputKeyDown}
+                  placeholder="Add a tag..."
+                  className="flex-1 px-3 py-2 bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                <button
+                  type="button"
+                  onClick={handleAddTag}
+                  className="px-4 py-2 bg-slate-100 dark:bg-slate-600 hover:bg-slate-200 dark:hover:bg-slate-500 rounded-md text-sm font-medium text-slate-700 dark:text-slate-200"
+                >
+                  Add
+                </button>
               </div>
-            )}
-          </div>
+              {tags.length > 0 && (
+                <div className="flex flex-wrap gap-2 mt-2">
+                  {tags.map((tag) => (
+                    <span
+                      key={tag}
+                      className="inline-flex items-center px-3 py-1 bg-blue-100 dark:bg-blue-500/30 text-blue-800 dark:text-blue-200 rounded-full text-sm"
+                    >
+                      {tag}
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveTag(tag)}
+                        className="ml-2 hover:text-blue-900 dark:hover:text-blue-100"
+                      >
+                        ×
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Footer */}

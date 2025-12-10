@@ -189,6 +189,40 @@ export function buildSubscriptionListFromFeeds(
 }
 
 /**
+ * Normalize a URL for comparison purposes
+ * Handles trailing slashes, protocol, and common variations
+ */
+function normalizeUrlForComparison(url: string): string {
+  try {
+    const urlObj = new URL(url.trim())
+    // Remove trailing slash from pathname
+    let pathname = urlObj.pathname.replace(/\/+$/, '')
+    // Lowercase the hostname
+    const hostname = urlObj.hostname.toLowerCase()
+    // Sort and normalize search params
+    urlObj.searchParams.sort()
+    const search = urlObj.searchParams.toString()
+    // Construct normalized URL without protocol
+    return `${hostname}${pathname}${search ? '?' + search : ''}`
+  } catch {
+    // If URL parsing fails, just lowercase and trim
+    return url.toLowerCase().trim().replace(/\/+$/, '')
+  }
+}
+
+/**
+ * Normalize an npub for comparison
+ */
+function normalizeNpub(value: string): string {
+  // Try to extract npub from the value (might be a URL or just npub)
+  const match = value.match(/npub1[a-zA-Z0-9]+/)
+  if (match) {
+    return match[0].toLowerCase()
+  }
+  return value.toLowerCase().trim()
+}
+
+/**
  * Merge remote subscription list with local feeds
  * Returns lists of feeds to add and remove
  */
@@ -199,44 +233,36 @@ export function mergeSubscriptionLists(
   toAdd: Array<{ type: 'RSS' | 'NOSTR'; url: string; tags?: string[] }>
   localOnly: Array<{ type: 'RSS' | 'NOSTR' | 'NOSTR_VIDEO'; url: string }>
 } {
-  // Normalize RSS URLs (lowercase, trim)
+  // Normalize RSS URLs for comparison
   const localRssUrls = new Set(
     localFeeds
-      .filter(f => f.type === 'RSS')
-      .map(f => f.url.toLowerCase().trim())
+      .filter(f => f.type === 'RSS' && f.url)
+      .map(f => normalizeUrlForComparison(f.url))
   )
   
   // For Nostr feeds, extract and normalize npubs
-  // The url field may contain:
-  // 1. Just the npub: "npub1abc..."
-  // 2. A URL containing npub: "https://example.com/npub1abc..."
   const localNpubs = new Set(
     localFeeds
       .filter(f => f.type === 'NOSTR' || f.type === 'NOSTR_VIDEO')
-      .map(f => {
-        // First try to extract npub from the url
-        const match = f.url.match(/npub1[a-zA-Z0-9]+/)
-        if (match) {
-          return match[0].toLowerCase()
-        }
-        // If url starts with npub, use it directly
-        if (f.url.toLowerCase().startsWith('npub1')) {
-          return f.url.toLowerCase().trim()
-        }
-        return f.url.toLowerCase().trim()
-      })
+      .filter(f => f.url) // Filter out empty URLs
+      .map(f => normalizeNpub(f.url))
   )
   
-  console.log('🔍 Sync merge - Local RSS URLs:', Array.from(localRssUrls))
-  console.log('🔍 Sync merge - Local Nostr npubs:', Array.from(localNpubs))
+  console.log('🔍 Sync merge - Local RSS URLs (normalized):', Array.from(localRssUrls))
+  console.log('🔍 Sync merge - Local Nostr npubs (normalized):', Array.from(localNpubs))
+  console.log('🔍 Sync merge - Remote RSS URLs:', remoteList.rss)
+  console.log('🔍 Sync merge - Remote Nostr npubs:', remoteList.nostr)
   
   const toAdd: Array<{ type: 'RSS' | 'NOSTR'; url: string; tags?: string[] }> = []
   
   // Check RSS feeds
   for (const rssUrl of remoteList.rss) {
-    const normalizedUrl = rssUrl.toLowerCase().trim()
-    if (!localRssUrls.has(normalizedUrl)) {
-      console.log('🔍 Sync - RSS not found locally:', rssUrl)
+    const normalizedRemoteUrl = normalizeUrlForComparison(rssUrl)
+    const exists = localRssUrls.has(normalizedRemoteUrl)
+    
+    console.log(`🔍 RSS check: "${rssUrl}" -> normalized: "${normalizedRemoteUrl}" -> exists: ${exists}`)
+    
+    if (!exists) {
       toAdd.push({
         type: 'RSS',
         url: rssUrl,
@@ -247,41 +273,35 @@ export function mergeSubscriptionLists(
   
   // Check Nostr feeds
   for (const npub of remoteList.nostr) {
-    // Normalize the remote npub
-    const normalizedNpub = npub.toLowerCase().trim()
-    const npubMatch = normalizedNpub.match(/npub1[a-zA-Z0-9]+/)
-    const npubToCheck = npubMatch ? npubMatch[0] : normalizedNpub
+    const normalizedRemoteNpub = normalizeNpub(npub)
+    const exists = localNpubs.has(normalizedRemoteNpub)
     
-    if (!localNpubs.has(npubToCheck)) {
-      console.log('🔍 Sync - Nostr npub not found locally:', npub, '(normalized:', npubToCheck, ')')
+    console.log(`🔍 Nostr check: "${npub}" -> normalized: "${normalizedRemoteNpub}" -> exists: ${exists}`)
+    
+    if (!exists) {
       toAdd.push({
         type: 'NOSTR',
-        url: npub, // Just the npub, caller will handle URL construction
+        url: npub,
         tags: remoteList.tags?.[npub],
       })
-    } else {
-      console.log('✅ Sync - Nostr npub already exists:', npubToCheck)
     }
   }
   
   // Find local-only feeds (not in remote)
-  const remoteRssLower = new Set(remoteList.rss.map(u => u.toLowerCase().trim()))
-  const remoteNostrLower = new Set(
-    remoteList.nostr.map(n => {
-      const match = n.toLowerCase().match(/npub1[a-zA-Z0-9]+/)
-      return match ? match[0] : n.toLowerCase().trim()
-    })
-  )
+  const remoteRssNormalized = new Set(remoteList.rss.map(u => normalizeUrlForComparison(u)))
+  const remoteNpubsNormalized = new Set(remoteList.nostr.map(n => normalizeNpub(n)))
   
   const localOnly = localFeeds.filter(f => {
+    if (!f.url) return true // Keep local feeds with no URL
+    
     if (f.type === 'RSS') {
-      return !remoteRssLower.has(f.url.toLowerCase().trim())
+      return !remoteRssNormalized.has(normalizeUrlForComparison(f.url))
     } else {
-      const match = f.url.match(/npub1[a-zA-Z0-9]+/)
-      const npub = match ? match[0].toLowerCase() : f.url.toLowerCase().trim()
-      return !remoteNostrLower.has(npub)
+      return !remoteNpubsNormalized.has(normalizeNpub(f.url))
     }
   })
+  
+  console.log(`🔍 Sync result: ${toAdd.length} to add, ${localOnly.length} local-only`)
   
   return { toAdd, localOnly }
 }

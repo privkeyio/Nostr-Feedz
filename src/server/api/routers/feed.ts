@@ -57,6 +57,7 @@ export const feedRouter = createTRPCRouter({
   getFeeds: protectedProcedure
     .input(z.object({
       tags: z.array(z.string()).optional(),
+      categoryId: z.string().optional(),
     }).optional())
     .query(async ({ ctx, input }) => {
       const whereClause: any = {
@@ -68,6 +69,11 @@ export const feedRouter = createTRPCRouter({
         whereClause.tags = {
           hasEvery: input.tags,
         }
+      }
+
+      // Filter by category if provided
+      if (input?.categoryId) {
+        whereClause.categoryId = input.categoryId
       }
 
       const subscriptions = await ctx.db.subscription.findMany({
@@ -90,6 +96,7 @@ export const feedRouter = createTRPCRouter({
               },
             },
           },
+          category: true,
         },
       })
 
@@ -102,6 +109,13 @@ export const feedRouter = createTRPCRouter({
         unreadCount: sub.feed._count.items,
         subscribedAt: sub.createdAt,
         tags: sub.tags,
+        categoryId: sub.categoryId,
+        category: sub.category ? {
+          id: sub.category.id,
+          name: sub.category.name,
+          color: sub.category.color,
+          icon: sub.category.icon,
+        } : null,
       }))
     }),
 
@@ -244,6 +258,7 @@ export const feedRouter = createTRPCRouter({
       npub: z.string().optional(),
       title: z.string().optional(),
       tags: z.array(z.string()).optional(),
+      categoryId: z.string().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       // Validate input based on type
@@ -596,6 +611,7 @@ export const feedRouter = createTRPCRouter({
           userPubkey: ctx.nostrPubkey,
           feedId: feed.id,
           tags: subscriptionTags,
+          categoryId: input.categoryId,
         },
       })
       
@@ -628,6 +644,7 @@ export const feedRouter = createTRPCRouter({
                 userPubkey: ctx.nostrPubkey,
                 feedId: videoFeed.id,
                 tags: videoTags,
+                categoryId: input.categoryId, // Use same category as main feed
               },
             })
           }
@@ -641,6 +658,7 @@ export const feedRouter = createTRPCRouter({
         url: feed.url,
         npub: feed.npub,
         tags: input.tags || [],
+        categoryId: input.categoryId,
       }
     }),
 
@@ -972,6 +990,9 @@ export const feedRouter = createTRPCRouter({
                 publishedAt: item.publishedAt,
                 url: item.url,
                 guid: item.guid,
+                videoId: item.videoId,
+                embedUrl: item.embedUrl,
+                thumbnail: item.thumbnail,
               },
             })
             newItemsCount++
@@ -1212,6 +1233,9 @@ export const feedRouter = createTRPCRouter({
                     publishedAt: item.publishedAt,
                     url: item.url,
                     guid: item.guid,
+                    videoId: item.videoId,
+                    embedUrl: item.embedUrl,
+                    thumbnail: item.thumbnail,
                   },
                 })
                 results.newItems++
@@ -1289,5 +1313,213 @@ export const feedRouter = createTRPCRouter({
       }
 
       return results
+    }),
+
+  // ==================== CATEGORIES ====================
+
+  // Get all user categories
+  getCategories: protectedProcedure
+    .query(async ({ ctx }) => {
+      const categories = await ctx.db.category.findMany({
+        where: { userPubkey: ctx.nostrPubkey },
+        include: {
+          _count: {
+            select: { subscriptions: true },
+          },
+        },
+        orderBy: { sortOrder: 'asc' },
+      })
+
+      return categories.map(cat => ({
+        id: cat.id,
+        name: cat.name,
+        color: cat.color,
+        icon: cat.icon,
+        sortOrder: cat.sortOrder,
+        feedCount: cat._count.subscriptions,
+      }))
+    }),
+
+  // Create a new category
+  createCategory: protectedProcedure
+    .input(z.object({
+      name: z.string().min(1).max(50),
+      color: z.string().optional(),
+      icon: z.string().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      // Get max sortOrder for this user
+      const maxSortOrder = await ctx.db.category.aggregate({
+        where: { userPubkey: ctx.nostrPubkey },
+        _max: { sortOrder: true },
+      })
+
+      const category = await ctx.db.category.create({
+        data: {
+          userPubkey: ctx.nostrPubkey,
+          name: input.name,
+          color: input.color,
+          icon: input.icon,
+          sortOrder: (maxSortOrder._max.sortOrder ?? -1) + 1,
+        },
+      })
+
+      return category
+    }),
+
+  // Update a category
+  updateCategory: protectedProcedure
+    .input(z.object({
+      id: z.string(),
+      name: z.string().min(1).max(50).optional(),
+      color: z.string().optional(),
+      icon: z.string().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const category = await ctx.db.category.update({
+        where: {
+          id: input.id,
+          userPubkey: ctx.nostrPubkey,
+        },
+        data: {
+          ...(input.name && { name: input.name }),
+          ...(input.color !== undefined && { color: input.color }),
+          ...(input.icon !== undefined && { icon: input.icon }),
+        },
+      })
+
+      return category
+    }),
+
+  // Delete a category
+  deleteCategory: protectedProcedure
+    .input(z.object({
+      id: z.string(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      // Delete the category - subscriptions will have categoryId set to null (due to onDelete: SetNull)
+      await ctx.db.category.delete({
+        where: {
+          id: input.id,
+          userPubkey: ctx.nostrPubkey,
+        },
+      })
+
+      return { success: true }
+    }),
+
+  // Reorder categories
+  reorderCategories: protectedProcedure
+    .input(z.object({
+      categoryIds: z.array(z.string()),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      // Update sortOrder for each category
+      await Promise.all(
+        input.categoryIds.map((id, index) =>
+          ctx.db.category.update({
+            where: {
+              id,
+              userPubkey: ctx.nostrPubkey,
+            },
+            data: { sortOrder: index },
+          })
+        )
+      )
+
+      return { success: true }
+    }),
+
+  // Update subscription category
+  updateSubscriptionCategory: protectedProcedure
+    .input(z.object({
+      feedId: z.string(),
+      categoryId: z.string().nullable(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      await ctx.db.subscription.update({
+        where: {
+          userPubkey_feedId: {
+            userPubkey: ctx.nostrPubkey,
+            feedId: input.feedId,
+          },
+        },
+        data: {
+          categoryId: input.categoryId,
+        },
+      })
+
+      return { success: true }
+    }),
+
+  // Get categories with unread counts
+  getCategoriesWithUnread: protectedProcedure
+    .query(async ({ ctx }) => {
+      const categories = await ctx.db.category.findMany({
+        where: { userPubkey: ctx.nostrPubkey },
+        include: {
+          subscriptions: {
+            include: {
+              feed: {
+                include: {
+                  items: {
+                    where: {
+                      readItems: {
+                        none: {
+                          userPubkey: ctx.nostrPubkey,
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+        orderBy: { sortOrder: 'asc' },
+      })
+
+      return categories.map(cat => ({
+        id: cat.id,
+        name: cat.name,
+        color: cat.color,
+        icon: cat.icon,
+        feedCount: cat.subscriptions.length,
+        unreadCount: cat.subscriptions.reduce((sum, sub) => sum + sub.feed.items.length, 0),
+      }))
+    }),
+
+  // ==================== USER PREFERENCES ====================
+
+  // Get user preference (organization mode)
+  getUserPreference: protectedProcedure
+    .query(async ({ ctx }) => {
+      const preference = await ctx.db.userPreference.findUnique({
+        where: { userPubkey: ctx.nostrPubkey },
+      })
+
+      return {
+        organizationMode: (preference?.organizationMode ?? 'tags') as 'tags' | 'categories',
+      }
+    }),
+
+  // Update user preference
+  updateUserPreference: protectedProcedure
+    .input(z.object({
+      organizationMode: z.enum(['tags', 'categories']),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const preference = await ctx.db.userPreference.upsert({
+        where: { userPubkey: ctx.nostrPubkey },
+        create: {
+          userPubkey: ctx.nostrPubkey,
+          organizationMode: input.organizationMode,
+        },
+        update: {
+          organizationMode: input.organizationMode,
+        },
+      })
+
+      return preference
     }),
 })

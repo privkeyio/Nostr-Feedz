@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { api } from '@/trpc/react'
 import {
   publishSubscriptionList,
   fetchSubscriptionList,
@@ -13,6 +14,18 @@ import {
 import type { UnsignedEvent, Event } from 'nostr-tools'
 
 export type MarkReadBehavior = 'on-open' | 'after-10s' | 'never'
+export type OrganizationMode = 'tags' | 'categories'
+
+// Settings tabs
+type SettingsTab = 'relays' | 'organization' | 'reading' | 'sync' | 'about'
+
+const SETTINGS_TABS: { id: SettingsTab; label: string; icon: string }[] = [
+  { id: 'relays', label: 'Nostr Relays', icon: '🔌' },
+  { id: 'organization', label: 'Feed Organization', icon: '📁' },
+  { id: 'reading', label: 'Reading', icon: '📖' },
+  { id: 'sync', label: 'Sync', icon: '🔄' },
+  { id: 'about', label: 'About', icon: 'ℹ️' },
+]
 
 // Sync state type
 export interface SyncState {
@@ -23,6 +36,14 @@ export interface SyncState {
     toAdd: Array<{ type: 'RSS' | 'NOSTR'; url: string; tags?: string[] }>
     localOnly: Array<{ type: 'RSS' | 'NOSTR' | 'NOSTR_VIDEO'; url: string }>
   }
+}
+
+interface Category {
+  id: string
+  name: string
+  color: string | null
+  icon: string | null
+  feedCount: number
 }
 
 interface Relay {
@@ -73,18 +94,78 @@ interface SettingsDialogProps {
   onClose: () => void
   markReadBehavior: MarkReadBehavior
   onChangeMarkReadBehavior: (behavior: MarkReadBehavior) => void
+  organizationMode: OrganizationMode
+  onChangeOrganizationMode: (mode: OrganizationMode) => void
   feeds?: Array<{ type: 'RSS' | 'NOSTR' | 'NOSTR_VIDEO'; url: string; tags?: string[] }>
   userPubkey?: string
   onImportFeeds?: (feeds: Array<{ type: 'RSS' | 'NOSTR'; url: string; tags?: string[] }>) => Promise<void>
 }
 
-export function SettingsDialog({ isOpen, onClose, markReadBehavior, onChangeMarkReadBehavior, feeds = [], userPubkey, onImportFeeds }: SettingsDialogProps) {
+// Default category colors/icons
+const CATEGORY_COLORS = [
+  '#3b82f6', // blue
+  '#10b981', // green
+  '#f59e0b', // amber
+  '#ef4444', // red
+  '#8b5cf6', // violet
+  '#ec4899', // pink
+  '#06b6d4', // cyan
+  '#84cc16', // lime
+]
+
+const CATEGORY_ICONS = ['📁', '📰', '🎬', '🎵', '💼', '🎮', '📚', '🔬', '💡', '🌍', '⚡', '🎯']
+
+export function SettingsDialog({ isOpen, onClose, markReadBehavior, onChangeMarkReadBehavior, organizationMode, onChangeOrganizationMode, feeds = [], userPubkey, onImportFeeds }: SettingsDialogProps) {
+  const [activeTab, setActiveTab] = useState<SettingsTab>('relays')
   const [relays, setRelays] = useState<Relay[]>([])
   const [newRelayUrl, setNewRelayUrl] = useState('')
   const [error, setError] = useState('')
   const [syncState, setSyncState] = useState<SyncState>({
     status: 'idle',
     lastSync: null,
+  })
+  
+  // Category management state
+  const [newCategoryName, setNewCategoryName] = useState('')
+  const [newCategoryColor, setNewCategoryColor] = useState(CATEGORY_COLORS[0])
+  const [newCategoryIcon, setNewCategoryIcon] = useState('📁')
+  const [editingCategory, setEditingCategory] = useState<Category | null>(null)
+  const [categoryError, setCategoryError] = useState('')
+  
+  // tRPC for categories
+  const utils = api.useUtils()
+  const { data: categories = [] } = api.feed.getCategories.useQuery(undefined, {
+    enabled: isOpen && !!userPubkey,
+  })
+  
+  const createCategoryMutation = api.feed.createCategory.useMutation({
+    onSuccess: () => {
+      void utils.feed.getCategories.invalidate()
+      setNewCategoryName('')
+      setNewCategoryColor(CATEGORY_COLORS[0])
+      setNewCategoryIcon('📁')
+      setCategoryError('')
+    },
+    onError: (error) => {
+      setCategoryError(error.message)
+    },
+  })
+  
+  const updateCategoryMutation = api.feed.updateCategory.useMutation({
+    onSuccess: () => {
+      void utils.feed.getCategories.invalidate()
+      setEditingCategory(null)
+      setCategoryError('')
+    },
+    onError: (error) => {
+      setCategoryError(error.message)
+    },
+  })
+  
+  const deleteCategoryMutation = api.feed.deleteCategory.useMutation({
+    onSuccess: () => {
+      void utils.feed.getCategories.invalidate()
+    },
   })
 
   // Load relays from localStorage on mount
@@ -289,10 +370,10 @@ export function SettingsDialog({ isOpen, onClose, markReadBehavior, onChangeMark
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white dark:bg-slate-800 rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-hidden flex flex-col">
+      <div className="bg-white dark:bg-slate-800 rounded-lg shadow-xl max-w-3xl w-full max-h-[90vh] overflow-hidden flex flex-col">
         {/* Header */}
-        <div className="flex items-center justify-between p-6 border-b border-slate-200 dark:border-slate-700">
-          <h2 className="text-2xl font-bold text-slate-900 dark:text-slate-100">Settings</h2>
+        <div className="flex items-center justify-between p-4 border-b border-slate-200 dark:border-slate-700">
+          <h2 className="text-xl font-bold text-slate-900 dark:text-slate-100">Settings</h2>
           <button
             onClick={onClose}
             className="p-2 text-slate-800 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full transition-colors"
@@ -301,255 +382,512 @@ export function SettingsDialog({ isOpen, onClose, markReadBehavior, onChangeMark
           </button>
         </div>
 
-        {/* Content */}
-        <div className="flex-1 overflow-y-auto p-6">
-          <div className="space-y-6">
-            {/* Relays Section */}
-            <div>
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Nostr Relays</h3>
-                <button
-                  onClick={resetToDefaults}
-                  className="text-sm text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
-                >
-                  Reset to Defaults
-                </button>
-              </div>
-              
-              <p className="text-sm text-slate-600 dark:text-slate-400 mb-4">
-                Manage which Nostr relays to use for fetching content. More relays = better content discovery but slower performance.
-              </p>
+        {/* Content with sidebar */}
+        <div className="flex-1 flex overflow-hidden">
+          {/* Sidebar Navigation */}
+          <div className="w-48 border-r border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/50 p-2 overflow-y-auto">
+            {SETTINGS_TABS.map((tab) => (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-left text-sm transition-colors mb-1 ${
+                  activeTab === tab.id
+                    ? 'bg-blue-600 text-white'
+                    : 'text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
+                }`}
+              >
+                <span>{tab.icon}</span>
+                <span>{tab.label}</span>
+              </button>
+            ))}
+          </div>
 
-              {/* Add New Relay */}
-              <div className="mb-4">
-                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
-                  Add Custom Relay
-                </label>
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    value={newRelayUrl}
-                    onChange={(e) => setNewRelayUrl(e.target.value)}
-                    onKeyPress={(e) => e.key === 'Enter' && addRelay()}
-                    placeholder="wss://relay.example.com"
-                    className="flex-1 px-3 py-2 bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
+          {/* Tab Content */}
+          <div className="flex-1 overflow-y-auto p-6">
+            {/* Relays Tab */}
+            {activeTab === 'relays' && (
+              <div>
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Nostr Relays</h3>
                   <button
-                    onClick={addRelay}
-                    className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 flex items-center gap-2"
+                    onClick={resetToDefaults}
+                    className="text-sm text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
                   >
-                    <span>+</span>
-                    Add
+                    Reset to Defaults
                   </button>
                 </div>
-                {error && (
-                  <div className="mt-2 flex items-center gap-2 text-sm text-red-600 dark:text-red-400">
-                    <span>⚠</span>
-                    {error}
+                
+                <p className="text-sm text-slate-600 dark:text-slate-400 mb-4">
+                  Manage which Nostr relays to use for fetching content. More relays = better content discovery but slower performance.
+                </p>
+
+                {/* Add New Relay */}
+                <div className="mb-4">
+                  <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+                    Add Custom Relay
+                  </label>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={newRelayUrl}
+                      onChange={(e) => setNewRelayUrl(e.target.value)}
+                      onKeyPress={(e) => e.key === 'Enter' && addRelay()}
+                      placeholder="wss://relay.example.com"
+                      className="flex-1 px-3 py-2 bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                    <button
+                      onClick={addRelay}
+                      className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 flex items-center gap-2"
+                    >
+                      <span>+</span>
+                      Add
+                    </button>
                   </div>
-                )}
-              </div>
-
-              {/* Popular Relays */}
-              <div className="mb-4">
-                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
-                  Popular Relays
-                </label>
-                <div className="flex flex-wrap gap-2">
-                  {POPULAR_RELAYS.map((relay) => {
-                    const isAdded = relays.some(r => r.url === relay.url)
-                    return (
-                      <button
-                        key={relay.url}
-                        onClick={() => !isAdded && addPopularRelay(relay.url)}
-                        disabled={isAdded}
-                        className={`px-3 py-1 rounded-full text-sm flex items-center gap-1 transition-colors ${
-                          isAdded
-                            ? 'bg-slate-100 text-slate-400 dark:bg-slate-700 dark:text-slate-500 cursor-not-allowed'
-                            : 'bg-blue-50 text-blue-700 hover:bg-blue-100 dark:bg-blue-900/50 dark:text-blue-300 dark:hover:bg-blue-900'
-                        }`}
-                      >
-                        {isAdded && <span>✓</span>}
-                        {relay.name}
-                      </button>
-                    )
-                  })}
-                </div>
-              </div>
-
-              {/* Current Relays List */}
-              <div>
-                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
-                  Active Relays ({relays.length})
-                </label>
-                <div className="space-y-2">
-                  {relays.length === 0 ? (
-                    <div className="text-center py-8 text-slate-500 dark:text-slate-400">
-                      <p>No relays configured</p>
-                      <p className="text-sm">Add at least one relay to fetch content</p>
+                  {error && (
+                    <div className="mt-2 flex items-center gap-2 text-sm text-red-600 dark:text-red-400">
+                      <span>⚠</span>
+                      {error}
                     </div>
-                  ) : (
-                    relays.map((relay) => (
-                      <div
-                        key={relay.url}
-                        className="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-700/50 rounded-lg"
-                      >
-                        <div className="flex-1">
-                          <div className="font-mono text-sm text-slate-800 dark:text-slate-200">{relay.url}</div>
-                        </div>
-                        <button
-                          onClick={() => removeRelay(relay.url)}
-                          className="p-2 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/50 rounded-md transition-colors"
-                          title="Remove relay"
-                        >
-                          <span>🗑️</span>
-                        </button>
-                      </div>
-                    ))
                   )}
                 </div>
-              </div>
-            </div>
 
-            {/* Reading Preferences */}
-            <div className="pt-4 border-t border-slate-200 dark:border-slate-700">
-              <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-2">Reading Preferences</h3>
-              <p className="text-sm text-slate-600 dark:text-slate-400 mb-4">
-                Choose when articles should be marked as read.
-              </p>
-              <div className="space-y-3">
-                {MARK_READ_OPTIONS.map((option) => (
+                {/* Popular Relays */}
+                <div className="mb-4">
+                  <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+                    Popular Relays
+                  </label>
+                  <div className="flex flex-wrap gap-2">
+                    {POPULAR_RELAYS.map((relay) => {
+                      const isAdded = relays.some(r => r.url === relay.url)
+                      return (
+                        <button
+                          key={relay.url}
+                          onClick={() => !isAdded && addPopularRelay(relay.url)}
+                          disabled={isAdded}
+                          className={`px-3 py-1 rounded-full text-sm flex items-center gap-1 transition-colors ${
+                            isAdded
+                              ? 'bg-slate-100 text-slate-400 dark:bg-slate-700 dark:text-slate-500 cursor-not-allowed'
+                              : 'bg-blue-50 text-blue-700 hover:bg-blue-100 dark:bg-blue-900/50 dark:text-blue-300 dark:hover:bg-blue-900'
+                          }`}
+                        >
+                          {isAdded && <span>✓</span>}
+                          {relay.name}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+
+                {/* Current Relays List */}
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+                    Active Relays ({relays.length})
+                  </label>
+                  <div className="space-y-2">
+                    {relays.length === 0 ? (
+                      <div className="text-center py-8 text-slate-500 dark:text-slate-400">
+                        <p>No relays configured</p>
+                        <p className="text-sm">Add at least one relay to fetch content</p>
+                      </div>
+                    ) : (
+                      relays.map((relay) => (
+                        <div
+                          key={relay.url}
+                          className="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-700/50 rounded-lg"
+                        >
+                          <div className="flex-1">
+                            <div className="font-mono text-sm text-slate-800 dark:text-slate-200">{relay.url}</div>
+                          </div>
+                          <button
+                            onClick={() => removeRelay(relay.url)}
+                            className="p-2 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/50 rounded-md transition-colors"
+                            title="Remove relay"
+                          >
+                            <span>🗑️</span>
+                          </button>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Organization Tab */}
+            {activeTab === 'organization' && (
+              <div>
+                <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-2">Feed Organization</h3>
+                <p className="text-sm text-slate-600 dark:text-slate-400 mb-4">
+                  Choose how to organize your feeds - using free-form tags or structured categories.
+                </p>
+                <div className="flex gap-4 mb-6">
                   <label
-                    key={option.value}
-                    className={`flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
-                      markReadBehavior === option.value
+                    className={`flex-1 p-4 rounded-lg border cursor-pointer transition-colors ${
+                      organizationMode === 'tags'
                         ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/30'
                         : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800'
                     }`}
                   >
                     <input
                       type="radio"
-                      name="mark-read-behavior"
-                      value={option.value}
-                      checked={markReadBehavior === option.value}
-                      onChange={() => onChangeMarkReadBehavior(option.value)}
-                      className="mt-1"
+                      name="organization-mode"
+                      value="tags"
+                      checked={organizationMode === 'tags'}
+                      onChange={() => onChangeOrganizationMode('tags')}
+                      className="sr-only"
                     />
-                    <div>
-                      <div className="font-medium text-slate-900 dark:text-slate-100">{option.title}</div>
-                      <p className="text-sm text-slate-600 dark:text-slate-400">{option.description}</p>
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className="text-lg">🏷️</span>
+                      <span className="font-medium text-slate-900 dark:text-slate-100">Tags</span>
                     </div>
+                    <p className="text-xs text-slate-600 dark:text-slate-400">
+                      Flexible, multiple tags per feed. Great for cross-categorization.
+                    </p>
                   </label>
-                ))}
-              </div>
-            </div>
-
-            {/* Sync Section */}
-            <div className="pt-4 border-t border-slate-200 dark:border-slate-700">
-              <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-2">Subscription Sync</h3>
-              <p className="text-sm text-slate-600 dark:text-slate-400 mb-4">
-                Sync your RSS and Nostr subscriptions across devices using Nostr events (kind 30404).
-              </p>
-              
-              {/* Last sync time */}
-              <div className="text-sm text-slate-500 dark:text-slate-400 mb-4">
-                Last synced: {formatLastSync(syncState.lastSync)}
-              </div>
-
-              {/* Sync status */}
-              {syncState.status === 'syncing' && (
-                <div className="flex items-center gap-2 p-3 bg-blue-50 dark:bg-blue-900/30 rounded-lg mb-4">
-                  <svg className="animate-spin h-5 w-5 text-blue-600 dark:text-blue-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                  </svg>
-                  <span className="text-blue-700 dark:text-blue-300">Syncing...</span>
+                  <label
+                    className={`flex-1 p-4 rounded-lg border cursor-pointer transition-colors ${
+                      organizationMode === 'categories'
+                        ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/30'
+                        : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800'
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="organization-mode"
+                      value="categories"
+                      checked={organizationMode === 'categories'}
+                      onChange={() => onChangeOrganizationMode('categories')}
+                      className="sr-only"
+                    />
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className="text-lg">📁</span>
+                      <span className="font-medium text-slate-900 dark:text-slate-100">Categories</span>
+                    </div>
+                    <p className="text-xs text-slate-600 dark:text-slate-400">
+                      Traditional folders with icons and colors. One category per feed.
+                    </p>
+                  </label>
                 </div>
-              )}
 
-              {syncState.status === 'success' && !syncState.pendingImport && (
-                <div className="flex items-center gap-2 p-3 bg-green-50 dark:bg-green-900/30 rounded-lg mb-4">
-                  <span className="text-green-600 dark:text-green-400">✓</span>
-                  <span className="text-green-700 dark:text-green-300">Sync successful!</span>
-                </div>
-              )}
+                {/* Category Management - only show when categories mode is selected */}
+                {organizationMode === 'categories' && (
+                  <div className="pt-4 border-t border-slate-200 dark:border-slate-700">
+                    <h4 className="font-semibold text-slate-900 dark:text-slate-100 mb-2">Manage Categories</h4>
+                    <p className="text-sm text-slate-600 dark:text-slate-400 mb-4">
+                      Create and manage categories to organize your feeds.
+                    </p>
 
-              {syncState.status === 'error' && (
-                <div className="flex items-center gap-2 p-3 bg-red-50 dark:bg-red-900/30 rounded-lg mb-4">
-                  <span className="text-red-600 dark:text-red-400">⚠</span>
-                  <span className="text-red-700 dark:text-red-300">Error: {syncState.error}</span>
-                </div>
-              )}
+                    {/* Add New Category */}
+                    <div className="mb-4 p-4 bg-slate-50 dark:bg-slate-700/50 rounded-lg">
+                      <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+                        {editingCategory ? 'Edit Category' : 'New Category'}
+                      </label>
+                      <div className="flex gap-2 mb-3">
+                        <input
+                          type="text"
+                          value={editingCategory ? editingCategory.name : newCategoryName}
+                          onChange={(e) => editingCategory 
+                            ? setEditingCategory({ ...editingCategory, name: e.target.value })
+                            : setNewCategoryName(e.target.value)
+                          }
+                          placeholder="Category name"
+                          className="flex-1 px-3 py-2 bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                      </div>
+                      
+                      {/* Icon picker */}
+                      <div className="mb-3">
+                        <label className="block text-xs text-slate-600 dark:text-slate-400 mb-1">Icon</label>
+                        <div className="flex flex-wrap gap-1">
+                          {CATEGORY_ICONS.map((icon) => (
+                            <button
+                              key={icon}
+                              onClick={() => editingCategory 
+                                ? setEditingCategory({ ...editingCategory, icon })
+                                : setNewCategoryIcon(icon)
+                              }
+                              className={`w-8 h-8 text-lg rounded flex items-center justify-center ${
+                                (editingCategory ? editingCategory.icon : newCategoryIcon) === icon
+                                  ? 'bg-blue-100 dark:bg-blue-900 ring-2 ring-blue-500'
+                                  : 'hover:bg-slate-200 dark:hover:bg-slate-600'
+                              }`}
+                            >
+                              {icon}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
 
-              {/* Pending import confirmation */}
-              {syncState.pendingImport && (
-                <div className="p-4 bg-yellow-50 dark:bg-yellow-900/30 rounded-lg mb-4">
-                  <p className="font-medium text-yellow-800 dark:text-yellow-200 mb-2">
-                    Found {syncState.pendingImport.toAdd.length} new subscription(s) to import:
-                  </p>
-                  <ul className="text-sm text-yellow-700 dark:text-yellow-300 mb-3 max-h-32 overflow-y-auto">
-                    {syncState.pendingImport.toAdd.map((feed, i) => (
-                      <li key={i} className="truncate">
-                        • [{feed.type}] {feed.url}
-                      </li>
-                    ))}
-                  </ul>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={handleConfirmImport}
-                      className="px-3 py-1.5 bg-green-600 text-white rounded-md hover:bg-green-700 text-sm"
-                    >
-                      Import All
-                    </button>
-                    <button
-                      onClick={handleCancelImport}
-                      className="px-3 py-1.5 bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-md hover:bg-slate-300 dark:hover:bg-slate-600 text-sm"
-                    >
-                      Cancel
-                    </button>
+                      {/* Color picker */}
+                      <div className="mb-3">
+                        <label className="block text-xs text-slate-600 dark:text-slate-400 mb-1">Color</label>
+                        <div className="flex gap-1">
+                          {CATEGORY_COLORS.map((color) => (
+                            <button
+                              key={color}
+                              onClick={() => editingCategory 
+                                ? setEditingCategory({ ...editingCategory, color })
+                                : setNewCategoryColor(color)
+                              }
+                              className={`w-6 h-6 rounded-full ${
+                                (editingCategory ? editingCategory.color : newCategoryColor) === color
+                                  ? 'ring-2 ring-offset-2 ring-blue-500'
+                                  : ''
+                              }`}
+                              style={{ backgroundColor: color }}
+                            />
+                          ))}
+                        </div>
+                      </div>
+
+                      {categoryError && (
+                        <div className="mb-3 text-sm text-red-600 dark:text-red-400">{categoryError}</div>
+                      )}
+
+                      <div className="flex gap-2">
+                        {editingCategory ? (
+                          <>
+                            <button
+                              onClick={() => updateCategoryMutation.mutate({
+                                id: editingCategory.id,
+                                name: editingCategory.name,
+                                color: editingCategory.color ?? undefined,
+                                icon: editingCategory.icon ?? undefined,
+                              })}
+                              disabled={updateCategoryMutation.isPending || !editingCategory.name.trim()}
+                              className="px-3 py-1.5 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 text-sm"
+                            >
+                              {updateCategoryMutation.isPending ? 'Saving...' : 'Save Changes'}
+                            </button>
+                            <button
+                              onClick={() => {
+                                setEditingCategory(null)
+                                setCategoryError('')
+                              }}
+                              className="px-3 py-1.5 bg-slate-200 dark:bg-slate-600 text-slate-700 dark:text-slate-200 rounded-md hover:bg-slate-300 dark:hover:bg-slate-500 text-sm"
+                            >
+                              Cancel
+                            </button>
+                          </>
+                        ) : (
+                          <button
+                            onClick={() => createCategoryMutation.mutate({
+                              name: newCategoryName,
+                              color: newCategoryColor,
+                              icon: newCategoryIcon,
+                            })}
+                            disabled={createCategoryMutation.isPending || !newCategoryName.trim()}
+                            className="px-3 py-1.5 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 text-sm"
+                          >
+                            {createCategoryMutation.isPending ? 'Creating...' : 'Create Category'}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Categories List */}
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+                        Your Categories ({categories.length})
+                      </label>
+                      {categories.length === 0 ? (
+                        <div className="text-center py-6 text-slate-500 dark:text-slate-400 text-sm">
+                          No categories yet. Create one above to get started!
+                        </div>
+                      ) : (
+                        <div className="space-y-2">
+                          {categories.map((cat) => (
+                            <div
+                              key={cat.id}
+                              className="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-700/50 rounded-lg"
+                            >
+                              <div className="flex items-center gap-3">
+                                <span
+                                  className="w-8 h-8 rounded flex items-center justify-center text-lg"
+                                  style={{ backgroundColor: cat.color ?? '#94a3b8' }}
+                                >
+                                  {cat.icon || '📁'}
+                                </span>
+                                <div>
+                                  <div className="font-medium text-slate-800 dark:text-slate-200">{cat.name}</div>
+                                  <div className="text-xs text-slate-500 dark:text-slate-400">{cat.feedCount} feeds</div>
+                                </div>
+                              </div>
+                              <div className="flex gap-1">
+                                <button
+                                  onClick={() => setEditingCategory(cat)}
+                                  className="p-2 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-600 rounded-md transition-colors"
+                                  title="Edit category"
+                                >
+                                  ✏️
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    if (confirm(`Delete "${cat.name}"? Feeds in this category will be uncategorized.`)) {
+                                      deleteCategoryMutation.mutate({ id: cat.id })
+                                    }
+                                  }}
+                                  className="p-2 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/50 rounded-md transition-colors"
+                                  title="Delete category"
+                                >
+                                  🗑️
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   </div>
-                </div>
-              )}
-
-              {/* Sync buttons */}
-              <div className="flex flex-wrap gap-3">
-                <button
-                  onClick={handleExportToNostr}
-                  disabled={syncState.status === 'syncing' || feeds.length === 0}
-                  className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <span>⬆</span>
-                  Export to Nostr
-                </button>
-                <button
-                  onClick={handleImportFromNostr}
-                  disabled={syncState.status === 'syncing' || !userPubkey}
-                  className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <span>⬇</span>
-                  Import from Nostr
-                </button>
+                )}
               </div>
-              <p className="text-xs text-slate-500 dark:text-slate-400 mt-2">
-                Requires a Nostr browser extension (Alby, nos2x, etc.)
-              </p>
-            </div>
+            )}
 
-            {/* Other Settings Can Go Here */}
-            <div className="pt-4 border-t border-slate-200 dark:border-slate-700">
-              <h3 className="text-lg font-semibold mb-2 text-slate-900 dark:text-slate-100">About</h3>
-              <p className="text-sm text-slate-600 dark:text-slate-400">
-                Nostr Feedz - A feed reader for RSS and Nostr long-form content (NIP-23)
-              </p>
-              <p className="text-xs text-slate-500 dark:text-slate-500 mt-2">
-                Changes to relays will be applied on next feed refresh
-              </p>
-            </div>
+            {/* Reading Tab */}
+            {activeTab === 'reading' && (
+              <div>
+                <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-2">Reading Preferences</h3>
+                <p className="text-sm text-slate-600 dark:text-slate-400 mb-4">
+                  Choose when articles should be marked as read.
+                </p>
+                <div className="space-y-3">
+                  {MARK_READ_OPTIONS.map((option) => (
+                    <label
+                      key={option.value}
+                      className={`flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
+                        markReadBehavior === option.value
+                          ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/30'
+                          : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800'
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="mark-read-behavior"
+                        value={option.value}
+                        checked={markReadBehavior === option.value}
+                        onChange={() => onChangeMarkReadBehavior(option.value)}
+                        className="mt-1"
+                      />
+                      <div>
+                        <div className="font-medium text-slate-900 dark:text-slate-100">{option.title}</div>
+                        <p className="text-sm text-slate-600 dark:text-slate-400">{option.description}</p>
+                      </div>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Sync Tab */}
+            {activeTab === 'sync' && (
+              <div>
+                <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-2">Subscription Sync</h3>
+                <p className="text-sm text-slate-600 dark:text-slate-400 mb-4">
+                  Sync your RSS and Nostr subscriptions across devices using Nostr events (kind 30404).
+                </p>
+                
+                {/* Last sync time */}
+                <div className="text-sm text-slate-500 dark:text-slate-400 mb-4">
+                  Last synced: {formatLastSync(syncState.lastSync)}
+                </div>
+
+                {/* Sync status */}
+                {syncState.status === 'syncing' && (
+                  <div className="flex items-center gap-2 p-3 bg-blue-50 dark:bg-blue-900/30 rounded-lg mb-4">
+                    <svg className="animate-spin h-5 w-5 text-blue-600 dark:text-blue-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    <span className="text-blue-700 dark:text-blue-300">Syncing...</span>
+                  </div>
+                )}
+
+                {syncState.status === 'success' && !syncState.pendingImport && (
+                  <div className="flex items-center gap-2 p-3 bg-green-50 dark:bg-green-900/30 rounded-lg mb-4">
+                    <span className="text-green-600 dark:text-green-400">✓</span>
+                    <span className="text-green-700 dark:text-green-300">Sync successful!</span>
+                  </div>
+                )}
+
+                {syncState.status === 'error' && (
+                  <div className="flex items-center gap-2 p-3 bg-red-50 dark:bg-red-900/30 rounded-lg mb-4">
+                    <span className="text-red-600 dark:text-red-400">⚠</span>
+                    <span className="text-red-700 dark:text-red-300">Error: {syncState.error}</span>
+                  </div>
+                )}
+
+                {/* Pending import confirmation */}
+                {syncState.pendingImport && (
+                  <div className="p-4 bg-yellow-50 dark:bg-yellow-900/30 rounded-lg mb-4">
+                    <p className="font-medium text-yellow-800 dark:text-yellow-200 mb-2">
+                      Found {syncState.pendingImport.toAdd.length} new subscription(s) to import:
+                    </p>
+                    <ul className="text-sm text-yellow-700 dark:text-yellow-300 mb-3 max-h-32 overflow-y-auto">
+                      {syncState.pendingImport.toAdd.map((feed, i) => (
+                        <li key={i} className="truncate">
+                          • [{feed.type}] {feed.url}
+                        </li>
+                      ))}
+                    </ul>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={handleConfirmImport}
+                        className="px-3 py-1.5 bg-green-600 text-white rounded-md hover:bg-green-700 text-sm"
+                      >
+                        Import All
+                      </button>
+                      <button
+                        onClick={handleCancelImport}
+                        className="px-3 py-1.5 bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-md hover:bg-slate-300 dark:hover:bg-slate-600 text-sm"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Sync buttons */}
+                <div className="flex flex-wrap gap-3">
+                  <button
+                    onClick={handleExportToNostr}
+                    disabled={syncState.status === 'syncing' || feeds.length === 0}
+                    className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <span>⬆</span>
+                    Export to Nostr
+                  </button>
+                  <button
+                    onClick={handleImportFromNostr}
+                    disabled={syncState.status === 'syncing' || !userPubkey}
+                    className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <span>⬇</span>
+                    Import from Nostr
+                  </button>
+                </div>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-2">
+                  Requires a Nostr browser extension (Alby, nos2x, etc.)
+                </p>
+              </div>
+            )}
+
+            {/* About Tab */}
+            {activeTab === 'about' && (
+              <div>
+                <h3 className="text-lg font-semibold mb-2 text-slate-900 dark:text-slate-100">About</h3>
+                <p className="text-sm text-slate-600 dark:text-slate-400">
+                  Nostr Feedz - A feed reader for RSS and Nostr long-form content (NIP-23)
+                </p>
+                <p className="text-xs text-slate-500 dark:text-slate-500 mt-2">
+                  Changes to relays will be applied on next feed refresh
+                </p>
+              </div>
+            )}
           </div>
         </div>
 
         {/* Footer */}
-        <div className="border-t border-slate-200 dark:border-slate-700 p-6 bg-slate-50 dark:bg-slate-800/50">
+        <div className="border-t border-slate-200 dark:border-slate-700 p-4 bg-slate-50 dark:bg-slate-800/50">
           <div className="flex justify-end gap-3">
             <button
               onClick={onClose}

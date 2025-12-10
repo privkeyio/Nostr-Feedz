@@ -1,34 +1,41 @@
 # Nostr-Feedz
 
-A modern, Google Reader-style feed aggregator that combines traditional RSS feeds with Nostr's decentralized long-form content (NIP-23).
+A modern, Google Reader-style feed aggregator that combines traditional RSS feeds with Nostr's decentralized long-form content (NIP-23) and video content.
 
 ## Overview
 
-Nostr-Feedz is a full-stack web application built with Next.js that provides a unified reading experience for both RSS feeds and Nostr long-form content. It features a clean, three-panel interface reminiscent of Google Reader, allowing users to subscribe to their favorite blogs and Nostr authors in one place.
+Nostr-Feedz is a full-stack web application built with Next.js that provides a unified reading experience for RSS feeds, Nostr long-form content, and video feeds from YouTube and Rumble. It features a clean, three-panel interface reminiscent of Google Reader, allowing users to subscribe to their favorite blogs, Nostr authors, and video channels in one place.
 
 ## Features
 
 ### Feed Management
 - Subscribe to RSS/Atom feeds with automatic feed discovery
 - Subscribe to Nostr users for their long-form content (NIP-23)
+- **Subscribe to video channels** (YouTube and Rumble)
 - Manual refresh or automatic feed updates
 - Remove feeds with one click
 - Unread count tracking per feed
-- **Tag/categorize feeds** for better organization
-- Filter feeds by tags with drill-down support
+- **Dual organization modes**: Tags or Categories
+- Filter feeds by tags or categories
 
 ### Content Reading
 - Three-panel Google Reader-style interface
 - Clean, readable content formatting for Markdown, HTML, and plain text
+- **Embedded video player** for YouTube and Rumble content
 - Mark articles as read/unread
+- **Configurable mark-as-read behavior** (on open, after 10 seconds, or manual)
 - Full-screen article view with proper typography
 - Independent scrolling for feed list, article list, and content pane
+- **Favorites system** - Star articles for later reading
+- **Dark mode support** with optimized readability
 
 ### Organization & Discovery
-- **Sidebar view toggle**: Switch between Feeds and Tags views
+- **Sidebar view toggle**: Switch between Feeds, Tags, Categories, and Favorites
 - **Tag-based filtering**: Select one or more tags to filter feeds
-- **Unread counts per tag**: See total unread items for each category
-- **Feed counts per tag**: Track how many feeds belong to each tag
+- **Category system**: Create custom categories with colors and icons
+- **Unread counts per tag/category**: See total unread items for each
+- **Feed counts per tag/category**: Track how many feeds belong to each
+- **Tag sorting**: Alphabetically or by unread count
 - Smart tag management with visual pill interface
 
 ### Nostr Integration
@@ -36,18 +43,47 @@ Nostr-Feedz is a full-stack web application built with Next.js that provides a u
 - Popular user discovery
 - Customizable relay configuration
 - NIP-23 long-form content support
+- **NIP-94 video content support**
 - Display user names and profile information
+- **Share articles to Nostr** with attribution
+
+### Cross-Device Sync
+- **Subscription sync via Nostr** (kind 30404 events)
+- Export subscriptions to Nostr relays
+- Import subscriptions from Nostr relays
+- Automatic sync detection on login
+- **Cross-app compatibility** with documented sync protocol
 
 ### RSS Features
 - Intelligent feed discovery (supports homepage URLs)
 - Checks common feed locations (/feed, /rss, /atom.xml, etc.)
 - Parses HTML for feed links
 - Supports RSS, Atom, and JSON Feed formats
+- **YouTube channel RSS feeds** auto-discovery
+- **Rumble channel RSS feeds** support
+
+### Video Support
+- **YouTube video embedding** with proper iframe integration
+- **YouTube Shorts support**
+- **Rumble video embedding**
+- Video thumbnail extraction
+- Clean video player interface
 
 ### Authentication
 - Nostr-based authentication using browser extensions (nos2x, Alby, etc.)
 - No centralized account system
 - Your npub is your identity
+
+### Guide Directory
+- **Public catalog of Nostr feeds** for discovery
+- Browse featured Nostr authors by topic
+- Submit new feeds to the directory
+- Featured feeds curation
+
+### Progressive Web App (PWA)
+- **Installable as a mobile app**
+- Offline-capable service worker
+- App manifest for home screen installation
 
 ## Tech Stack
 
@@ -76,6 +112,11 @@ Nostr-Feedz is a full-stack web application built with Next.js that provides a u
 - **rehype-sanitize** - HTML sanitization
 - **remark-gfm** - GitHub Flavored Markdown support
 
+### Deployment
+- **Docker** - Containerized deployment
+- **Docker Compose** - Multi-container orchestration
+- **Caddy** - Reverse proxy with automatic HTTPS
+
 ## Getting Started
 
 ### Prerequisites
@@ -86,34 +127,48 @@ Nostr-Feedz is a full-stack web application built with Next.js that provides a u
 ### Installation
 
 1. Clone the repository:
-```bash
-git clone https://github.com/plebone/Nostr-Feedz.git
+\`\`\`bash
+git clone https://github.com/PlebOne/Nostr-Feedz.git
 cd Nostr-Feedz
-```
+\`\`\`
 
 2. Install dependencies:
-```bash
+\`\`\`bash
 npm install
-```
+\`\`\`
 
 3. Set up environment variables:
-Create a `.env` file in the root directory:
-```env
+Create a \`.env\` file in the root directory:
+\`\`\`env
 DATABASE_URL="postgresql://user:password@localhost:5432/nostr_feedz"
-```
+\`\`\`
 
 4. Initialize the database:
-```bash
+\`\`\`bash
 npx prisma generate
 npx prisma db push
-```
+\`\`\`
 
 5. Run the development server:
-```bash
+\`\`\`bash
 npm run dev
-```
+\`\`\`
 
 6. Open [http://localhost:3000](http://localhost:3000) in your browser
+
+### Docker Deployment
+
+1. Copy the environment example:
+\`\`\`bash
+cp .env.production.example .env.production
+\`\`\`
+
+2. Configure your environment variables in \`.env.production\`
+
+3. Build and run with Docker Compose:
+\`\`\`bash
+docker compose up -d
+\`\`\`
 
 ## Usage
 
@@ -128,7 +183,8 @@ npm run dev
 1. Click "Add Feed" in the sidebar
 2. Select "RSS Feed" tab
 3. Enter the feed URL (or website homepage)
-4. The app will automatically discover and subscribe to the feed
+4. Optionally assign tags or a category
+5. The app will automatically discover and subscribe to the feed
 
 **Nostr Feeds:**
 1. Click "Add Feed" in the sidebar
@@ -137,74 +193,115 @@ npm run dev
 4. Or manually enter an npub
 5. Click on a profile to subscribe
 
+**Video Channels:**
+1. Click "Add Feed" in the sidebar
+2. Select "Video Channel" tab
+3. Paste a YouTube or Rumble channel URL
+4. The app will discover and subscribe to the channel's RSS feed
+
 ### Managing Feeds
-- Hover over a feed to see refresh and delete buttons
-- Click the refresh icon to fetch new content
-- Click the X icon to unsubscribe
+- Click the ⋮ menu on a feed to see options
+- Mark all items as read
+- Set category (in categories mode)
+- Edit tags (in tags mode)
+- Delete the subscription
+
+### Organizing with Tags vs Categories
+
+**Tags Mode:**
+- Assign multiple tags to each feed
+- Filter by selecting one or more tags
+- Sort tags alphabetically or by unread count
+
+**Categories Mode:**
+- Create categories with custom icons and colors
+- Assign one category per feed
+- View feeds grouped by category in the sidebar
+
+To switch modes:
+1. Open Settings (gear icon)
+2. Go to "Feed Organization" tab
+3. Choose Tags or Categories
 
 ### Configuring Relays
 1. Click the gear icon in the sidebar
-2. Add or remove Nostr relays
-3. Use quick-add buttons for popular relays
-4. Click "Reset to Defaults" to restore default relays
+2. Go to "Nostr Relays" tab
+3. Add or remove Nostr relays
+4. Use quick-add buttons for popular relays
+5. Click "Reset to Defaults" to restore default relays
 
-### Reading Content
-- Click a feed to see its articles
-- Click an article to read the full content
-- Articles are automatically marked as read when clicked
-- All content (Markdown, HTML, plain text) is properly formatted
+### Syncing Subscriptions
+1. Open Settings (gear icon)
+2. Go to "Sync" tab
+3. Click "Export to Nostr" to save your subscriptions
+4. Click "Import from Nostr" to restore on another device
+5. Requires a Nostr browser extension
+
+### Reading Preferences
+1. Open Settings (gear icon)
+2. Go to "Reading" tab
+3. Choose when to mark articles as read:
+   - When you open an article
+   - After 10 seconds of reading
+   - Never (manual only)
+
+## API Documentation
+
+### Guide API
+Public API for accessing the Nostr feed directory. See [GUIDE_API.md](./GUIDE_API.md) for full documentation.
+
+### Subscription Sync Protocol
+Cross-app subscription sync using Nostr kind 30404 events. See [SUBSCRIPTION_SYNC.md](./SUBSCRIPTION_SYNC.md) for implementation details.
 
 ## Database Schema
 
-The application uses four main models:
+The application uses the following main models:
 
 - **Feed** - Stores RSS and Nostr feed information
-- **FeedItem** - Individual articles/posts
-- **Subscription** - User subscriptions to feeds
+- **FeedItem** - Individual articles/posts with video metadata
+- **Subscription** - User subscriptions to feeds with tags/category
+- **Category** - User-defined categories with colors and icons
+- **UserPreference** - User settings including organization mode
 - **ReadItem** - Tracks which items users have read
-
-## Architecture
-
-### Authentication Flow
-1. User clicks "Connect with Nostr"
-2. Browser extension provides public key
-3. Session stored in localStorage
-4. tRPC context validates authentication on each request
-
-### Feed Discovery Flow (RSS)
-1. Check if URL is a direct feed
-2. Parse HTML for feed links
-3. Try common feed locations (/feed, /rss, etc.)
-4. Return first valid feed found
-
-### Content Fetching Flow
-- **RSS**: Fetches on subscription and manual refresh
-- **Nostr**: Queries relays for kind 30023 events
-- Both: Stores items in database to avoid duplicates
+- **Favorite** - User's favorited articles
+- **GuideFeed** - Public directory of Nostr feeds
+- **NostrRelay** - Configurable relay list
 
 ## Project Structure
 
-```
+\`\`\`
 src/
 ├── app/                    # Next.js app router pages
-├── components/             # React components
-│   ├── feed-reader.tsx    # Main reader interface
-│   ├── add-feed-modal.tsx # Feed subscription UI
-│   ├── settings-dialog.tsx# Relay configuration
-│   └── formatted-content.tsx # Content renderer
-├── contexts/              # React contexts
+│   ├── api/               # API routes
+│   │   ├── guide/        # Guide directory API
+│   │   ├── nostr-rss/    # Nostr-to-RSS converter
+│   │   └── webhooks/     # External webhooks
+│   ├── guide/            # Guide directory pages
+│   ├── reader/           # Main feed reader
+│   └── subscribe/        # Subscription management
+├── components/            # React components
+│   ├── feed-reader.tsx   # Main reader interface
+│   ├── add-feed-modal.tsx# Feed subscription UI
+│   ├── settings-dialog.tsx# Settings with tabs
+│   ├── formatted-content.tsx # Content renderer
+│   └── video-embed.tsx   # Video player component
+├── contexts/             # React contexts
 │   └── NostrAuthContext.tsx
-├── lib/                   # Utilities
-│   ├── nostr-fetcher.ts  # Nostr protocol interactions
-│   ├── rss-parser.ts     # RSS feed parsing
-│   └── feed-discovery.ts # RSS feed discovery
-├── server/               # Backend code
+├── lib/                  # Utilities
+│   ├── nostr-fetcher.ts # Nostr protocol interactions
+│   ├── nostr-sync.ts    # Subscription sync
+│   ├── rss-parser.ts    # RSS feed parsing
+│   ├── feed-discovery.ts# RSS feed discovery
+│   └── video-parser.ts  # Video URL parsing
+├── server/              # Backend code
 │   └── api/
 │       └── routers/
-│           └── feed.ts   # Main tRPC router
+│           ├── feed.ts  # Main feed router
+│           ├── guide.ts # Guide directory router
+│           └── subscription.ts
 └── prisma/
-    └── schema.prisma     # Database schema
-```
+    └── schema.prisma    # Database schema
+\`\`\`
 
 ## Contributing
 

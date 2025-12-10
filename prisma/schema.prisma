@@ -60,14 +60,47 @@ model Subscription {
     userPubkey String   // Nostr pubkey
     feedId     String
     tags       String[] @default([]) // User-defined tags/categories
+    categoryId String?  // Optional: Link to a category
     createdAt  DateTime @default(now())
     
     // Relations  
-    feed Feed @relation(fields: [feedId], references: [id], onDelete: Cascade)
+    feed     Feed      @relation(fields: [feedId], references: [id], onDelete: Cascade)
+    category Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
     
     @@unique([userPubkey, feedId])
     @@index([userPubkey])
     @@index([userPubkey, tags])
+    @@index([userPubkey, categoryId])
+}
+
+// User-defined categories for organizing feeds
+model Category {
+    id         String   @id @default(cuid())
+    userPubkey String   // Nostr pubkey - categories are per-user
+    name       String   // Category name
+    color      String?  // Optional hex color for display
+    icon       String?  // Optional emoji icon
+    sortOrder  Int      @default(0) // For custom ordering
+    createdAt  DateTime @default(now())
+    updatedAt  DateTime @updatedAt
+    
+    // Relations
+    subscriptions Subscription[]
+    
+    @@unique([userPubkey, name])
+    @@index([userPubkey])
+    @@index([userPubkey, sortOrder])
+}
+
+// User preferences including organization mode
+model UserPreference {
+    id              String   @id @default(cuid())
+    userPubkey      String   @unique // Nostr pubkey
+    organizationMode String  @default("tags") // "tags" or "categories"
+    createdAt       DateTime @default(now())
+    updatedAt       DateTime @updatedAt
+    
+    @@index([userPubkey])
 }
 
 model ReadItem {

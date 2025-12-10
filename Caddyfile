@@ -15,9 +15,11 @@ nostrfeedz.com {
         # Security headers
         Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
         X-Content-Type-Options "nosniff"
-        X-Frame-Options "DENY"
         X-XSS-Protection "1; mode=block"
         Referrer-Policy "strict-origin-when-cross-origin"
+        
+        # Content Security Policy - allow YouTube and Rumble embeds
+        Content-Security-Policy "frame-src 'self' https://www.youtube.com https://youtube.com https://www.youtube-nocookie.com https://rumble.com https://*.rumble.com; frame-ancestors 'self';"
         
         # Remove server information
         -Server
