@@ -216,6 +216,7 @@ export const feedRouter = createTRPCRouter({
 
           return {
             id: item.id,
+            feedId: item.feedId,
             title: item.title,
             content: item.content,
             author: item.author,

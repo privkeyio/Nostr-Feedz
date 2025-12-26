@@ -369,14 +369,14 @@ export function SettingsDialog({ isOpen, onClose, markReadBehavior, onChangeMark
   if (!isOpen) return null
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white dark:bg-slate-800 rounded-lg shadow-xl max-w-3xl w-full max-h-[90vh] overflow-hidden flex flex-col">
+    <div className="modal-overlay">
+      <div className="modal-content max-w-3xl w-full max-h-[90vh] overflow-hidden flex flex-col animate-slide-in">
         {/* Header */}
-        <div className="flex items-center justify-between p-4 border-b border-slate-200 dark:border-slate-700">
-          <h2 className="text-xl font-bold text-slate-900 dark:text-slate-100">Settings</h2>
+        <div className="flex items-center justify-between p-5 border-b border-theme-primary">
+          <h2 className="text-xl font-bold text-theme-primary">Settings</h2>
           <button
             onClick={onClose}
-            className="p-2 text-slate-800 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full transition-colors"
+            className="p-2 text-theme-secondary hover:bg-theme-hover rounded-full transition-colors"
           >
             ✕
           </button>
@@ -385,45 +385,45 @@ export function SettingsDialog({ isOpen, onClose, markReadBehavior, onChangeMark
         {/* Content with sidebar */}
         <div className="flex-1 flex overflow-hidden">
           {/* Sidebar Navigation */}
-          <div className="w-48 border-r border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/50 p-2 overflow-y-auto">
+          <div className="w-52 border-r border-theme-primary bg-theme-tertiary p-3 overflow-y-auto themed-scrollbar">
             {SETTINGS_TABS.map((tab) => (
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
-                className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-left text-sm transition-colors mb-1 ${
+                className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-xl text-left text-sm transition-all duration-200 mb-1 ${
                   activeTab === tab.id
-                    ? 'bg-blue-600 text-white'
-                    : 'text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
+                    ? 'bg-theme-accent text-white shadow-theme-sm'
+                    : 'text-theme-secondary hover:bg-theme-hover'
                 }`}
               >
-                <span>{tab.icon}</span>
-                <span>{tab.label}</span>
+                <span className="text-base">{tab.icon}</span>
+                <span className="font-medium">{tab.label}</span>
               </button>
             ))}
           </div>
 
           {/* Tab Content */}
-          <div className="flex-1 overflow-y-auto p-6">
+          <div className="flex-1 overflow-y-auto themed-scrollbar p-6 bg-theme-secondary">
             {/* Relays Tab */}
             {activeTab === 'relays' && (
               <div>
                 <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Nostr Relays</h3>
+                  <h3 className="text-lg font-bold text-theme-primary">Nostr Relays</h3>
                   <button
                     onClick={resetToDefaults}
-                    className="text-sm text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
+                    className="text-sm font-medium text-theme-accent hover:underline"
                   >
                     Reset to Defaults
                   </button>
                 </div>
                 
-                <p className="text-sm text-slate-600 dark:text-slate-400 mb-4">
+                <p className="text-sm text-theme-secondary mb-6">
                   Manage which Nostr relays to use for fetching content. More relays = better content discovery but slower performance.
                 </p>
 
                 {/* Add New Relay */}
-                <div className="mb-4">
-                  <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+                <div className="mb-6">
+                  <label className="block text-sm font-semibold text-theme-secondary mb-2 uppercase tracking-wider">
                     Add Custom Relay
                   </label>
                   <div className="flex gap-2">
@@ -433,18 +433,18 @@ export function SettingsDialog({ isOpen, onClose, markReadBehavior, onChangeMark
                       onChange={(e) => setNewRelayUrl(e.target.value)}
                       onKeyPress={(e) => e.key === 'Enter' && addRelay()}
                       placeholder="wss://relay.example.com"
-                      className="flex-1 px-3 py-2 bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      className="input-theme flex-1"
                     />
                     <button
                       onClick={addRelay}
-                      className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 flex items-center gap-2"
+                      className="btn-theme-primary flex items-center gap-2"
                     >
                       <span>+</span>
                       Add
                     </button>
                   </div>
                   {error && (
-                    <div className="mt-2 flex items-center gap-2 text-sm text-red-600 dark:text-red-400">
+                    <div className="mt-2 flex items-center gap-2 text-sm text-red-600">
                       <span>⚠</span>
                       {error}
                     </div>
@@ -452,8 +452,8 @@ export function SettingsDialog({ isOpen, onClose, markReadBehavior, onChangeMark
                 </div>
 
                 {/* Popular Relays */}
-                <div className="mb-4">
-                  <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+                <div className="mb-6">
+                  <label className="block text-sm font-semibold text-theme-secondary mb-2 uppercase tracking-wider">
                     Popular Relays
                   </label>
                   <div className="flex flex-wrap gap-2">
@@ -464,10 +464,10 @@ export function SettingsDialog({ isOpen, onClose, markReadBehavior, onChangeMark
                           key={relay.url}
                           onClick={() => !isAdded && addPopularRelay(relay.url)}
                           disabled={isAdded}
-                          className={`px-3 py-1 rounded-full text-sm flex items-center gap-1 transition-colors ${
+                          className={`px-3 py-1.5 rounded-full text-sm font-medium flex items-center gap-1.5 transition-all duration-200 ${
                             isAdded
-                              ? 'bg-slate-100 text-slate-400 dark:bg-slate-700 dark:text-slate-500 cursor-not-allowed'
-                              : 'bg-blue-50 text-blue-700 hover:bg-blue-100 dark:bg-blue-900/50 dark:text-blue-300 dark:hover:bg-blue-900'
+                              ? 'bg-theme-tertiary text-theme-tertiary cursor-not-allowed'
+                              : 'bg-theme-accent-light text-theme-accent hover:shadow-theme-sm'
                           }`}
                         >
                           {isAdded && <span>✓</span>}
@@ -480,12 +480,12 @@ export function SettingsDialog({ isOpen, onClose, markReadBehavior, onChangeMark
 
                 {/* Current Relays List */}
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+                  <label className="block text-sm font-semibold text-theme-secondary mb-2 uppercase tracking-wider">
                     Active Relays ({relays.length})
                   </label>
                   <div className="space-y-2">
                     {relays.length === 0 ? (
-                      <div className="text-center py-8 text-slate-500 dark:text-slate-400">
+                      <div className="text-center py-8 text-theme-tertiary">
                         <p>No relays configured</p>
                         <p className="text-sm">Add at least one relay to fetch content</p>
                       </div>
@@ -493,14 +493,14 @@ export function SettingsDialog({ isOpen, onClose, markReadBehavior, onChangeMark
                       relays.map((relay) => (
                         <div
                           key={relay.url}
-                          className="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-700/50 rounded-lg"
+                          className="flex items-center justify-between p-3 bg-theme-tertiary rounded-xl"
                         >
                           <div className="flex-1">
-                            <div className="font-mono text-sm text-slate-800 dark:text-slate-200">{relay.url}</div>
+                            <div className="font-mono text-sm text-theme-primary">{relay.url}</div>
                           </div>
                           <button
                             onClick={() => removeRelay(relay.url)}
-                            className="p-2 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/50 rounded-md transition-colors"
+                            className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
                             title="Remove relay"
                           >
                             <span>🗑️</span>
@@ -516,16 +516,16 @@ export function SettingsDialog({ isOpen, onClose, markReadBehavior, onChangeMark
             {/* Organization Tab */}
             {activeTab === 'organization' && (
               <div>
-                <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-2">Feed Organization</h3>
-                <p className="text-sm text-slate-600 dark:text-slate-400 mb-4">
+                <h3 className="text-lg font-bold text-theme-primary mb-2">Feed Organization</h3>
+                <p className="text-sm text-theme-secondary mb-6">
                   Choose how to organize your feeds - using free-form tags or structured categories.
                 </p>
                 <div className="flex gap-4 mb-6">
                   <label
-                    className={`flex-1 p-4 rounded-lg border cursor-pointer transition-colors ${
+                    className={`flex-1 p-4 rounded-xl border-2 cursor-pointer transition-all duration-200 ${
                       organizationMode === 'tags'
-                        ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/30'
-                        : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800'
+                        ? 'border-theme-accent bg-theme-accent-light shadow-theme-sm'
+                        : 'border-theme-secondary bg-theme-primary hover:border-theme-accent/50'
                     }`}
                   >
                     <input
@@ -537,18 +537,18 @@ export function SettingsDialog({ isOpen, onClose, markReadBehavior, onChangeMark
                       className="sr-only"
                     />
                     <div className="flex items-center gap-2 mb-2">
-                      <span className="text-lg">🏷️</span>
-                      <span className="font-medium text-slate-900 dark:text-slate-100">Tags</span>
+                      <span className="text-xl">🏷️</span>
+                      <span className="font-bold text-theme-primary">Tags</span>
                     </div>
-                    <p className="text-xs text-slate-600 dark:text-slate-400">
+                    <p className="text-xs text-theme-secondary">
                       Flexible, multiple tags per feed. Great for cross-categorization.
                     </p>
                   </label>
                   <label
-                    className={`flex-1 p-4 rounded-lg border cursor-pointer transition-colors ${
+                    className={`flex-1 p-4 rounded-xl border-2 cursor-pointer transition-all duration-200 ${
                       organizationMode === 'categories'
-                        ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/30'
-                        : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800'
+                        ? 'border-theme-accent bg-theme-accent-light shadow-theme-sm'
+                        : 'border-theme-secondary bg-theme-primary hover:border-theme-accent/50'
                     }`}
                   >
                     <input
@@ -560,10 +560,10 @@ export function SettingsDialog({ isOpen, onClose, markReadBehavior, onChangeMark
                       className="sr-only"
                     />
                     <div className="flex items-center gap-2 mb-2">
-                      <span className="text-lg">📁</span>
-                      <span className="font-medium text-slate-900 dark:text-slate-100">Categories</span>
+                      <span className="text-xl">📁</span>
+                      <span className="font-bold text-theme-primary">Categories</span>
                     </div>
-                    <p className="text-xs text-slate-600 dark:text-slate-400">
+                    <p className="text-xs text-theme-secondary">
                       Traditional folders with icons and colors. One category per feed.
                     </p>
                   </label>
@@ -571,15 +571,15 @@ export function SettingsDialog({ isOpen, onClose, markReadBehavior, onChangeMark
 
                 {/* Category Management - only show when categories mode is selected */}
                 {organizationMode === 'categories' && (
-                  <div className="pt-4 border-t border-slate-200 dark:border-slate-700">
-                    <h4 className="font-semibold text-slate-900 dark:text-slate-100 mb-2">Manage Categories</h4>
-                    <p className="text-sm text-slate-600 dark:text-slate-400 mb-4">
+                  <div className="pt-6 border-t border-theme-primary">
+                    <h4 className="font-bold text-theme-primary mb-2">Manage Categories</h4>
+                    <p className="text-sm text-theme-secondary mb-4">
                       Create and manage categories to organize your feeds.
                     </p>
 
                     {/* Add New Category */}
-                    <div className="mb-4 p-4 bg-slate-50 dark:bg-slate-700/50 rounded-lg">
-                      <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+                    <div className="mb-6 p-4 bg-theme-tertiary rounded-xl">
+                      <label className="block text-sm font-semibold text-theme-secondary mb-2 uppercase tracking-wider">
                         {editingCategory ? 'Edit Category' : 'New Category'}
                       </label>
                       <div className="flex gap-2 mb-3">
@@ -591,13 +591,13 @@ export function SettingsDialog({ isOpen, onClose, markReadBehavior, onChangeMark
                             : setNewCategoryName(e.target.value)
                           }
                           placeholder="Category name"
-                          className="flex-1 px-3 py-2 bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          className="input-theme flex-1"
                         />
                       </div>
                       
                       {/* Icon picker */}
                       <div className="mb-3">
-                        <label className="block text-xs text-slate-600 dark:text-slate-400 mb-1">Icon</label>
+                        <label className="block text-xs text-theme-tertiary mb-1 uppercase tracking-wider">Icon</label>
                         <div className="flex flex-wrap gap-1">
                           {CATEGORY_ICONS.map((icon) => (
                             <button
@@ -606,10 +606,10 @@ export function SettingsDialog({ isOpen, onClose, markReadBehavior, onChangeMark
                                 ? setEditingCategory({ ...editingCategory, icon })
                                 : setNewCategoryIcon(icon)
                               }
-                              className={`w-8 h-8 text-lg rounded flex items-center justify-center ${
+                              className={`w-9 h-9 text-lg rounded-lg flex items-center justify-center transition-all ${
                                 (editingCategory ? editingCategory.icon : newCategoryIcon) === icon
-                                  ? 'bg-blue-100 dark:bg-blue-900 ring-2 ring-blue-500'
-                                  : 'hover:bg-slate-200 dark:hover:bg-slate-600'
+                                  ? 'bg-theme-accent-light ring-2 ring-theme-accent shadow-theme-sm'
+                                  : 'hover:bg-theme-hover'
                               }`}
                             >
                               {icon}
@@ -620,8 +620,8 @@ export function SettingsDialog({ isOpen, onClose, markReadBehavior, onChangeMark
 
                       {/* Color picker */}
                       <div className="mb-3">
-                        <label className="block text-xs text-slate-600 dark:text-slate-400 mb-1">Color</label>
-                        <div className="flex gap-1">
+                        <label className="block text-xs text-theme-tertiary mb-1 uppercase tracking-wider">Color</label>
+                        <div className="flex gap-2">
                           {CATEGORY_COLORS.map((color) => (
                             <button
                               key={color}
@@ -629,10 +629,10 @@ export function SettingsDialog({ isOpen, onClose, markReadBehavior, onChangeMark
                                 ? setEditingCategory({ ...editingCategory, color })
                                 : setNewCategoryColor(color)
                               }
-                              className={`w-6 h-6 rounded-full ${
+                              className={`w-7 h-7 rounded-full transition-all ${
                                 (editingCategory ? editingCategory.color : newCategoryColor) === color
-                                  ? 'ring-2 ring-offset-2 ring-blue-500'
-                                  : ''
+                                  ? 'ring-2 ring-offset-2 ring-theme-accent scale-110'
+                                  : 'hover:scale-110'
                               }`}
                               style={{ backgroundColor: color }}
                             />
@@ -641,7 +641,7 @@ export function SettingsDialog({ isOpen, onClose, markReadBehavior, onChangeMark
                       </div>
 
                       {categoryError && (
-                        <div className="mb-3 text-sm text-red-600 dark:text-red-400">{categoryError}</div>
+                        <div className="mb-3 text-sm text-red-600">{categoryError}</div>
                       )}
 
                       <div className="flex gap-2">
@@ -655,7 +655,7 @@ export function SettingsDialog({ isOpen, onClose, markReadBehavior, onChangeMark
                                 icon: editingCategory.icon ?? undefined,
                               })}
                               disabled={updateCategoryMutation.isPending || !editingCategory.name.trim()}
-                              className="px-3 py-1.5 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 text-sm"
+                              className="btn-theme-primary text-sm"
                             >
                               {updateCategoryMutation.isPending ? 'Saving...' : 'Save Changes'}
                             </button>
@@ -664,7 +664,7 @@ export function SettingsDialog({ isOpen, onClose, markReadBehavior, onChangeMark
                                 setEditingCategory(null)
                                 setCategoryError('')
                               }}
-                              className="px-3 py-1.5 bg-slate-200 dark:bg-slate-600 text-slate-700 dark:text-slate-200 rounded-md hover:bg-slate-300 dark:hover:bg-slate-500 text-sm"
+                              className="btn-theme-secondary text-sm"
                             >
                               Cancel
                             </button>
@@ -677,7 +677,7 @@ export function SettingsDialog({ isOpen, onClose, markReadBehavior, onChangeMark
                               icon: newCategoryIcon,
                             })}
                             disabled={createCategoryMutation.isPending || !newCategoryName.trim()}
-                            className="px-3 py-1.5 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 text-sm"
+                            className="btn-theme-primary text-sm"
                           >
                             {createCategoryMutation.isPending ? 'Creating...' : 'Create Category'}
                           </button>
@@ -687,11 +687,11 @@ export function SettingsDialog({ isOpen, onClose, markReadBehavior, onChangeMark
 
                     {/* Categories List */}
                     <div>
-                      <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+                      <label className="block text-sm font-semibold text-theme-secondary mb-2 uppercase tracking-wider">
                         Your Categories ({categories.length})
                       </label>
                       {categories.length === 0 ? (
-                        <div className="text-center py-6 text-slate-500 dark:text-slate-400 text-sm">
+                        <div className="text-center py-6 text-theme-tertiary text-sm">
                           No categories yet. Create one above to get started!
                         </div>
                       ) : (
@@ -699,24 +699,24 @@ export function SettingsDialog({ isOpen, onClose, markReadBehavior, onChangeMark
                           {categories.map((cat) => (
                             <div
                               key={cat.id}
-                              className="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-700/50 rounded-lg"
+                              className="flex items-center justify-between p-3 bg-theme-tertiary rounded-xl"
                             >
                               <div className="flex items-center gap-3">
                                 <span
-                                  className="w-8 h-8 rounded flex items-center justify-center text-lg"
+                                  className="w-9 h-9 rounded-lg flex items-center justify-center text-lg shadow-sm"
                                   style={{ backgroundColor: cat.color ?? '#94a3b8' }}
                                 >
                                   {cat.icon || '📁'}
                                 </span>
                                 <div>
-                                  <div className="font-medium text-slate-800 dark:text-slate-200">{cat.name}</div>
-                                  <div className="text-xs text-slate-500 dark:text-slate-400">{cat.feedCount} feeds</div>
+                                  <div className="font-medium text-theme-primary">{cat.name}</div>
+                                  <div className="text-xs text-theme-tertiary">{cat.feedCount} feeds</div>
                                 </div>
                               </div>
                               <div className="flex gap-1">
                                 <button
                                   onClick={() => setEditingCategory(cat)}
-                                  className="p-2 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-600 rounded-md transition-colors"
+                                  className="p-2 text-theme-secondary hover:bg-theme-hover rounded-lg transition-colors"
                                   title="Edit category"
                                 >
                                   ✏️
@@ -727,7 +727,7 @@ export function SettingsDialog({ isOpen, onClose, markReadBehavior, onChangeMark
                                       deleteCategoryMutation.mutate({ id: cat.id })
                                     }
                                   }}
-                                  className="p-2 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/50 rounded-md transition-colors"
+                                  className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
                                   title="Delete category"
                                 >
                                   🗑️
@@ -746,18 +746,18 @@ export function SettingsDialog({ isOpen, onClose, markReadBehavior, onChangeMark
             {/* Reading Tab */}
             {activeTab === 'reading' && (
               <div>
-                <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-2">Reading Preferences</h3>
-                <p className="text-sm text-slate-600 dark:text-slate-400 mb-4">
+                <h3 className="text-lg font-bold text-theme-primary mb-2">Reading Preferences</h3>
+                <p className="text-sm text-theme-secondary mb-6">
                   Choose when articles should be marked as read.
                 </p>
                 <div className="space-y-3">
                   {MARK_READ_OPTIONS.map((option) => (
                     <label
                       key={option.value}
-                      className={`flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
+                      className={`flex items-start gap-3 p-4 rounded-xl border-2 cursor-pointer transition-all duration-200 ${
                         markReadBehavior === option.value
-                          ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/30'
-                          : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800'
+                          ? 'border-theme-accent bg-theme-accent-light shadow-theme-sm'
+                          : 'border-theme-secondary bg-theme-primary hover:border-theme-accent/50'
                       }`}
                     >
                       <input
@@ -766,11 +766,11 @@ export function SettingsDialog({ isOpen, onClose, markReadBehavior, onChangeMark
                         value={option.value}
                         checked={markReadBehavior === option.value}
                         onChange={() => onChangeMarkReadBehavior(option.value)}
-                        className="mt-1"
+                        className="mt-1 accent-[rgb(var(--color-accent))]"
                       />
                       <div>
-                        <div className="font-medium text-slate-900 dark:text-slate-100">{option.title}</div>
-                        <p className="text-sm text-slate-600 dark:text-slate-400">{option.description}</p>
+                        <div className="font-medium text-theme-primary">{option.title}</div>
+                        <p className="text-sm text-theme-secondary">{option.description}</p>
                       </div>
                     </label>
                   ))}
@@ -781,48 +781,48 @@ export function SettingsDialog({ isOpen, onClose, markReadBehavior, onChangeMark
             {/* Sync Tab */}
             {activeTab === 'sync' && (
               <div>
-                <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-2">Subscription Sync</h3>
-                <p className="text-sm text-slate-600 dark:text-slate-400 mb-4">
+                <h3 className="text-lg font-bold text-theme-primary mb-2">Subscription Sync</h3>
+                <p className="text-sm text-theme-secondary mb-6">
                   Sync your RSS and Nostr subscriptions across devices using Nostr events (kind 30404).
                 </p>
                 
                 {/* Last sync time */}
-                <div className="text-sm text-slate-500 dark:text-slate-400 mb-4">
+                <div className="text-sm text-theme-tertiary mb-4">
                   Last synced: {formatLastSync(syncState.lastSync)}
                 </div>
 
                 {/* Sync status */}
                 {syncState.status === 'syncing' && (
-                  <div className="flex items-center gap-2 p-3 bg-blue-50 dark:bg-blue-900/30 rounded-lg mb-4">
-                    <svg className="animate-spin h-5 w-5 text-blue-600 dark:text-blue-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                  <div className="flex items-center gap-2 p-4 bg-theme-accent-light rounded-xl mb-4">
+                    <svg className="animate-spin h-5 w-5 text-theme-accent" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                       <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                     </svg>
-                    <span className="text-blue-700 dark:text-blue-300">Syncing...</span>
+                    <span className="text-theme-accent font-medium">Syncing...</span>
                   </div>
                 )}
 
                 {syncState.status === 'success' && !syncState.pendingImport && (
-                  <div className="flex items-center gap-2 p-3 bg-green-50 dark:bg-green-900/30 rounded-lg mb-4">
-                    <span className="text-green-600 dark:text-green-400">✓</span>
-                    <span className="text-green-700 dark:text-green-300">Sync successful!</span>
+                  <div className="flex items-center gap-2 p-4 bg-green-50 rounded-xl mb-4">
+                    <span className="text-green-600">✓</span>
+                    <span className="text-green-700 font-medium">Sync successful!</span>
                   </div>
                 )}
 
                 {syncState.status === 'error' && (
-                  <div className="flex items-center gap-2 p-3 bg-red-50 dark:bg-red-900/30 rounded-lg mb-4">
-                    <span className="text-red-600 dark:text-red-400">⚠</span>
-                    <span className="text-red-700 dark:text-red-300">Error: {syncState.error}</span>
+                  <div className="flex items-center gap-2 p-4 bg-red-50 rounded-xl mb-4">
+                    <span className="text-red-600">⚠</span>
+                    <span className="text-red-700 font-medium">Error: {syncState.error}</span>
                   </div>
                 )}
 
                 {/* Pending import confirmation */}
                 {syncState.pendingImport && (
-                  <div className="p-4 bg-yellow-50 dark:bg-yellow-900/30 rounded-lg mb-4">
-                    <p className="font-medium text-yellow-800 dark:text-yellow-200 mb-2">
+                  <div className="p-4 bg-yellow-50 rounded-xl mb-4">
+                    <p className="font-medium text-yellow-800 mb-2">
                       Found {syncState.pendingImport.toAdd.length} new subscription(s) to import:
                     </p>
-                    <ul className="text-sm text-yellow-700 dark:text-yellow-300 mb-3 max-h-32 overflow-y-auto">
+                    <ul className="text-sm text-yellow-700 mb-3 max-h-32 overflow-y-auto themed-scrollbar">
                       {syncState.pendingImport.toAdd.map((feed, i) => (
                         <li key={i} className="truncate">
                           • [{feed.type}] {feed.url}
@@ -832,13 +832,13 @@ export function SettingsDialog({ isOpen, onClose, markReadBehavior, onChangeMark
                     <div className="flex gap-2">
                       <button
                         onClick={handleConfirmImport}
-                        className="px-3 py-1.5 bg-green-600 text-white rounded-md hover:bg-green-700 text-sm"
+                        className="px-4 py-2 bg-green-600 text-white rounded-xl font-medium hover:bg-green-700 text-sm"
                       >
                         Import All
                       </button>
                       <button
                         onClick={handleCancelImport}
-                        className="px-3 py-1.5 bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-md hover:bg-slate-300 dark:hover:bg-slate-600 text-sm"
+                        className="btn-theme-secondary text-sm"
                       >
                         Cancel
                       </button>
@@ -851,7 +851,7 @@ export function SettingsDialog({ isOpen, onClose, markReadBehavior, onChangeMark
                   <button
                     onClick={handleExportToNostr}
                     disabled={syncState.status === 'syncing' || feeds.length === 0}
-                    className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="flex items-center gap-2 px-4 py-2.5 bg-purple-600 text-white rounded-xl font-medium hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
                   >
                     <span>⬆</span>
                     Export to Nostr
@@ -859,13 +859,13 @@ export function SettingsDialog({ isOpen, onClose, markReadBehavior, onChangeMark
                   <button
                     onClick={handleImportFromNostr}
                     disabled={syncState.status === 'syncing' || !userPubkey}
-                    className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="flex items-center gap-2 px-4 py-2.5 bg-indigo-600 text-white rounded-xl font-medium hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
                   >
                     <span>⬇</span>
                     Import from Nostr
                   </button>
                 </div>
-                <p className="text-xs text-slate-500 dark:text-slate-400 mt-2">
+                <p className="text-xs text-theme-tertiary mt-3">
                   Requires a Nostr browser extension (Alby, nos2x, etc.)
                 </p>
               </div>
@@ -874,11 +874,11 @@ export function SettingsDialog({ isOpen, onClose, markReadBehavior, onChangeMark
             {/* About Tab */}
             {activeTab === 'about' && (
               <div>
-                <h3 className="text-lg font-semibold mb-2 text-slate-900 dark:text-slate-100">About</h3>
-                <p className="text-sm text-slate-600 dark:text-slate-400">
+                <h3 className="text-lg font-bold text-theme-primary mb-2">About</h3>
+                <p className="text-sm text-theme-secondary">
                   Nostr Feedz - A feed reader for RSS and Nostr long-form content (NIP-23)
                 </p>
-                <p className="text-xs text-slate-500 dark:text-slate-500 mt-2">
+                <p className="text-xs text-theme-tertiary mt-3">
                   Changes to relays will be applied on next feed refresh
                 </p>
               </div>
@@ -887,11 +887,11 @@ export function SettingsDialog({ isOpen, onClose, markReadBehavior, onChangeMark
         </div>
 
         {/* Footer */}
-        <div className="border-t border-slate-200 dark:border-slate-700 p-4 bg-slate-50 dark:bg-slate-800/50">
+        <div className="border-t border-theme-primary p-4 bg-theme-tertiary">
           <div className="flex justify-end gap-3">
             <button
               onClick={onClose}
-              className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+              className="btn-theme-primary"
             >
               Done
             </button>

@@ -40,7 +40,7 @@ export function FormattedContent({
     <div className={`formatted-content-wrapper ${className}`}>
       {/* Video Embed Section */}
       {showVideoEmbed && (
-        <div className="mb-6">
+        <div className="mb-8 rounded-xl overflow-hidden shadow-theme-md">
           <VideoEmbed
             embedUrl={embedUrl}
             title={title}
@@ -61,7 +61,7 @@ export function FormattedContent({
               // Custom component overrides for better styling
               a: ({ node, ...props }) => (
                 <a
-                  className="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 underline"
+                  className="text-[rgb(var(--color-accent))] hover:text-[rgb(var(--color-accent-hover))] underline underline-offset-2 transition-colors"
                   target="_blank"
                   rel="noopener noreferrer"
                   {...props}
@@ -69,24 +69,84 @@ export function FormattedContent({
               ),
               img: ({ node, ...props }) => (
                 <img
-                  className="max-w-full h-auto rounded-lg shadow-md my-4"
+                  className="max-w-full h-auto rounded-xl shadow-theme-md my-6"
                   loading="lazy"
                   {...props}
                 />
               ),
               table: ({ node, ...props }) => (
-                <div className="overflow-x-auto my-4">
+                <div className="overflow-x-auto my-6 rounded-lg border border-[rgb(var(--color-border-primary))]">
                   <table
-                    className="min-w-full divide-y divide-slate-200 dark:divide-slate-700 border border-slate-200 dark:border-slate-700"
+                    className="min-w-full divide-y divide-[rgb(var(--color-border-primary))]"
                     {...props}
                   />
                 </div>
               ),
               thead: ({ node, ...props }) => (
                 <thead
-                  className="bg-slate-50 dark:bg-slate-800"
+                  className="bg-[rgb(var(--color-bg-tertiary))]"
                   {...props}
                 />
+              ),
+              th: ({ node, ...props }) => (
+                <th
+                  className="px-4 py-3 text-left text-sm font-semibold text-[rgb(var(--color-text-primary))]"
+                  {...props}
+                />
+              ),
+              td: ({ node, ...props }) => (
+                <td
+                  className="px-4 py-3 text-sm text-[rgb(var(--color-text-secondary))] border-t border-[rgb(var(--color-border-secondary))]"
+                  {...props}
+                />
+              ),
+              blockquote: ({ node, ...props }) => (
+                <blockquote
+                  className="border-l-4 border-[rgb(var(--color-border-accent))] pl-6 my-6 italic text-[rgb(var(--color-text-secondary))]"
+                  {...props}
+                />
+              ),
+              code: ({ node, inline, ...props }: any) => 
+                inline ? (
+                  <code
+                    className="px-1.5 py-0.5 rounded-md bg-[rgb(var(--color-bg-tertiary))] text-[rgb(var(--color-text-primary))] font-mono text-sm"
+                    {...props}
+                  />
+                ) : (
+                  <code {...props} />
+                ),
+              pre: ({ node, ...props }) => (
+                <pre
+                  className="p-4 rounded-xl bg-[rgb(var(--color-bg-tertiary))] overflow-x-auto my-6 font-mono text-sm"
+                  {...props}
+                />
+              ),
+              h1: ({ node, ...props }) => (
+                <h1 className="text-3xl font-bold mt-8 mb-4 text-[rgb(var(--color-text-primary))]" style={{ fontFamily: 'var(--heading-font)' }} {...props} />
+              ),
+              h2: ({ node, ...props }) => (
+                <h2 className="text-2xl font-bold mt-8 mb-3 text-[rgb(var(--color-text-primary))]" style={{ fontFamily: 'var(--heading-font)' }} {...props} />
+              ),
+              h3: ({ node, ...props }) => (
+                <h3 className="text-xl font-bold mt-6 mb-3 text-[rgb(var(--color-text-primary))]" style={{ fontFamily: 'var(--heading-font)' }} {...props} />
+              ),
+              h4: ({ node, ...props }) => (
+                <h4 className="text-lg font-bold mt-6 mb-2 text-[rgb(var(--color-text-primary))]" style={{ fontFamily: 'var(--heading-font)' }} {...props} />
+              ),
+              p: ({ node, ...props }) => (
+                <p className="mb-4 leading-relaxed text-[rgb(var(--color-text-primary))]" style={{ fontFamily: 'var(--content-font)' }} {...props} />
+              ),
+              ul: ({ node, ...props }) => (
+                <ul className="list-disc pl-6 mb-4 space-y-1 text-[rgb(var(--color-text-primary))]" {...props} />
+              ),
+              ol: ({ node, ...props }) => (
+                <ol className="list-decimal pl-6 mb-4 space-y-1 text-[rgb(var(--color-text-primary))]" {...props} />
+              ),
+              li: ({ node, ...props }) => (
+                <li className="leading-relaxed" {...props} />
+              ),
+              hr: ({ node, ...props }) => (
+                <hr className="my-8 border-t border-[rgb(var(--color-border-primary))]" {...props} />
               ),
             }}
           >
@@ -101,7 +161,8 @@ export function FormattedContent({
               return (
                 <p
                   key={index}
-                  className="mb-4 leading-relaxed text-slate-700 dark:text-slate-300 whitespace-pre-wrap"
+                  className="mb-4 leading-relaxed text-[rgb(var(--color-text-primary))] whitespace-pre-wrap"
+                  style={{ fontFamily: 'var(--content-font)' }}
                 >
                   {paragraph}
                 </p>

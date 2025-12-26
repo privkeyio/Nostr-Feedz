@@ -186,38 +186,38 @@ export function AddFeedModal({ isOpen, onClose, onAddFeed, isLoading = false, er
   if (!isOpen) return null
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white dark:bg-slate-800 rounded-lg w-full max-w-2xl mx-4 max-h-[90vh] overflow-hidden">
-        <div className="p-6 border-b border-slate-200 dark:border-slate-700">
-          <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Add New Feed</h3>
+    <div className="modal-overlay">
+      <div className="modal-content w-full max-w-2xl mx-4 max-h-[90vh] overflow-hidden animate-slide-in">
+        <div className="p-6 border-b border-theme-primary">
+          <h3 className="text-xl font-bold text-theme-primary">Add New Feed</h3>
         </div>
 
-        <div className="p-6 overflow-y-auto max-h-[calc(90vh-140px)]">
+        <div className="p-6 overflow-y-auto themed-scrollbar max-h-[calc(90vh-140px)]">
           {/* Feed Type Selection */}
           <div className="mb-6">
-            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-3">
+            <label className="block text-sm font-semibold text-theme-secondary mb-3 uppercase tracking-wider">
               Feed Type
             </label>
-            <div className="flex space-x-4">
+            <div className="flex gap-3">
               <button
                 onClick={() => setFeedType('RSS')}
-                className={`px-4 py-2 rounded-md text-sm font-medium ${
+                className={`flex-1 px-4 py-3 rounded-xl text-sm font-medium transition-all duration-200 border-2 ${
                   feedType === 'RSS'
-                    ? 'bg-blue-100 text-blue-700 border border-blue-300 dark:bg-blue-900/50 dark:text-blue-300 dark:border-blue-700'
-                    : 'bg-slate-100 text-slate-700 border border-slate-300 dark:bg-slate-700 dark:text-slate-300 dark:border-slate-600'
+                    ? 'bg-theme-accent-light border-theme-accent text-theme-accent shadow-theme-sm'
+                    : 'bg-theme-tertiary border-theme-secondary text-theme-secondary hover:border-theme-accent/50'
                 }`}
               >
-                📰 RSS/YouTube Feed
+                <span className="text-lg mr-2">📰</span> RSS/YouTube Feed
               </button>
               <button
                 onClick={() => setFeedType('NOSTR')}
-                className={`px-4 py-2 rounded-md text-sm font-medium ${
+                className={`flex-1 px-4 py-3 rounded-xl text-sm font-medium transition-all duration-200 border-2 ${
                   feedType === 'NOSTR'
-                    ? 'bg-purple-100 text-purple-700 border border-purple-300 dark:bg-purple-900/50 dark:text-purple-300 dark:border-purple-700'
-                    : 'bg-slate-100 text-slate-700 border border-slate-300 dark:bg-slate-700 dark:text-slate-300 dark:border-slate-600'
+                    ? 'bg-purple-100 border-purple-400 text-purple-700 shadow-theme-sm'
+                    : 'bg-theme-tertiary border-theme-secondary text-theme-secondary hover:border-purple-300'
                 }`}
               >
-                ⚡ Nostr (Articles & Videos)
+                <span className="text-lg mr-2">⚡</span> Nostr (Articles & Videos)
               </button>
             </div>
           </div>
@@ -225,12 +225,17 @@ export function AddFeedModal({ isOpen, onClose, onAddFeed, isLoading = false, er
           {/* RSS Input */}
           {feedType === 'RSS' && (
             <div>
-              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
+              <label className="block text-sm font-medium text-theme-secondary mb-2">
                 RSS Feed URL
               </label>
               {error && (
-                <div className="mb-3 rounded-md bg-red-50 dark:bg-red-900/20 p-3 border border-red-200 dark:border-red-800">
-                  <p className="text-sm text-red-800 dark:text-red-300">{error}</p>
+                <div className="mb-3 rounded-lg bg-red-50 p-4 border border-red-200">
+                  <p className="text-sm text-red-800 flex items-center gap-2">
+                    <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                    </svg>
+                    {error}
+                  </p>
                 </div>
               )}
               <input
@@ -241,9 +246,9 @@ export function AddFeedModal({ isOpen, onClose, onAddFeed, isLoading = false, er
                   setInternalError('')
                 }}
                 placeholder="https://example.com/feed.xml"
-                className="w-full px-3 py-2 bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="input-theme"
               />
-              <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+              <p className="mt-2 text-xs text-theme-tertiary">
                 Enter a feed URL or website homepage - we'll find the feed for you
               </p>
             </div>
@@ -253,17 +258,22 @@ export function AddFeedModal({ isOpen, onClose, onAddFeed, isLoading = false, er
           {feedType === 'NOSTR' && (
             <div className="space-y-4">
               {error && (
-                <div className="rounded-md bg-red-50 dark:bg-red-900/20 p-3 border border-red-200 dark:border-red-800">
-                  <p className="text-sm text-red-800 dark:text-red-300">{error}</p>
+                <div className="rounded-lg bg-red-50 p-4 border border-red-200">
+                  <p className="text-sm text-red-800 flex items-center gap-2">
+                    <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                    </svg>
+                    {error}
+                  </p>
                 </div>
               )}
-              <div className="text-center p-3 bg-slate-100 dark:bg-slate-700/50 rounded-lg">
-                <p className="text-sm text-slate-600 dark:text-slate-300">
+              <div className="text-center p-4 bg-theme-tertiary rounded-xl">
+                <p className="text-sm text-theme-secondary">
                   Looking for new content creators?{' '}
                   <Link
                     href="/guide"
                     onClick={handleClose}
-                    className="font-semibold text-blue-600 hover:underline dark:text-blue-400"
+                    className="font-semibold text-theme-accent hover:underline"
                   >
                     Check out the Nostr Feedz Guide
                   </Link>
@@ -274,7 +284,7 @@ export function AddFeedModal({ isOpen, onClose, onAddFeed, isLoading = false, er
                 <>
                   {/* Search Input */}
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
+                    <label className="block text-sm font-medium text-theme-secondary mb-2">
                       Search for User to Subscribe
                     </label>
                     <input
@@ -282,22 +292,22 @@ export function AddFeedModal({ isOpen, onClose, onAddFeed, isLoading = false, er
                       value={nostrSearch}
                       onChange={(e) => setNostrSearch(e.target.value)}
                       placeholder="Search by name, NIP-05, or npub..."
-                      className="w-full px-3 py-2 bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                      className="input-theme"
                     />
                   </div>
 
                   {/* Search Results */}
                   {searchResults.length > 0 && (
                     <div>
-                      <h4 className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Search Results</h4>
-                      <div className="space-y-2 max-h-48 overflow-y-auto">
+                      <h4 className="text-sm font-medium text-theme-secondary mb-2">Search Results</h4>
+                      <div className="space-y-2 max-h-48 overflow-y-auto themed-scrollbar">
                         {searchResults.map((profile, index) => (
                           <button
                             key={`search-${profile.npub}-${index}`}
                             onClick={() => handleSelectProfile(profile)}
-                            className="w-full p-3 text-left border border-slate-200 dark:border-slate-700 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors"
+                            className="w-full p-3 text-left border border-theme-primary rounded-xl hover:bg-theme-hover transition-colors"
                           >
-                            <div className="flex items-center space-x-3">
+                            <div className="flex items-center gap-3">
                               {profile.picture && (
                                 <img
                                   src={profile.picture}
@@ -306,17 +316,17 @@ export function AddFeedModal({ isOpen, onClose, onAddFeed, isLoading = false, er
                                 />
                               )}
                               <div className="flex-1 min-w-0">
-                                <div className="flex items-center space-x-2">
-                                  <p className="font-medium text-slate-900 dark:text-slate-100 truncate">
+                                <div className="flex items-center gap-2">
+                                  <p className="font-medium text-theme-primary truncate">
                                     {profile.displayName || profile.name || 'Unknown'}
                                   </p>
                                   {profile.nip05 && (
-                                    <span className="text-xs bg-green-100 dark:bg-green-900/50 text-green-800 dark:text-green-300 px-2 py-1 rounded">
+                                    <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">
                                       {profile.nip05}
                                     </span>
                                   )}
                                 </div>
-                                <p className="text-sm text-slate-500 dark:text-slate-400 truncate">
+                                <p className="text-sm text-theme-tertiary truncate">
                                   {profile.about || profile.npub.slice(0, 20) + '...'}
                                 </p>
                               </div>
@@ -330,15 +340,15 @@ export function AddFeedModal({ isOpen, onClose, onAddFeed, isLoading = false, er
                   {/* Popular Users */}
                   {nostrSearch.length === 0 && popularUsers.length > 0 && (
                     <div>
-                      <h4 className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Discover Users</h4>
-                      <div className="grid grid-cols-1 gap-2 max-h-64 overflow-y-auto">
+                      <h4 className="text-sm font-medium text-theme-secondary mb-2">Discover Users</h4>
+                      <div className="grid grid-cols-1 gap-2 max-h-64 overflow-y-auto themed-scrollbar">
                         {popularUsers.map((profile, index) => (
                           <button
                             key={`popular-${profile.npub}-${index}`}
                             onClick={() => handleSelectProfile(profile)}
-                            className="p-3 text-left border border-slate-200 dark:border-slate-700 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors"
+                            className="p-3 text-left border border-theme-primary rounded-xl hover:bg-theme-hover transition-colors"
                           >
-                            <div className="flex items-center space-x-3">
+                            <div className="flex items-center gap-3">
                               {profile.picture && (
                                 <img
                                   src={profile.picture}
@@ -347,18 +357,18 @@ export function AddFeedModal({ isOpen, onClose, onAddFeed, isLoading = false, er
                                 />
                               )}
                               <div className="flex-1 min-w-0">
-                                <div className="flex items-center space-x-2">
-                                  <p className="font-medium text-slate-900 dark:text-slate-100 truncate text-sm">
+                                <div className="flex items-center gap-2">
+                                  <p className="font-medium text-theme-primary truncate text-sm">
                                     {profile.displayName || profile.name || 'Unknown'}
                                   </p>
                                   {profile.nip05 && (
-                                    <span className="text-xs bg-green-100 dark:bg-green-900/50 text-green-800 dark:text-green-300 px-1 py-0.5 rounded">
+                                    <span className="text-xs bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full">
                                       ✓
                                     </span>
                                   )}
                                 </div>
                                 {profile.about && (
-                                  <p className="text-xs text-slate-500 dark:text-slate-400 truncate">
+                                  <p className="text-xs text-theme-tertiary truncate">
                                     {profile.about.slice(0, 60)}...
                                   </p>
                                 )}
@@ -371,11 +381,11 @@ export function AddFeedModal({ isOpen, onClose, onAddFeed, isLoading = false, er
                   )}
 
                   {/* Manual Entry Option */}
-                  <div className="pt-4 border-t border-slate-200 dark:border-slate-700">
+                  <div className="pt-4 border-t border-theme-primary">
                     <button
                       onClick={() => setShowManualInput(true)}
                       aria-label="Enter npub manually"
-                      className="w-full flex items-center justify-center space-x-2 px-3 py-2 bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 text-sm font-medium text-blue-700 dark:text-blue-200 rounded-md hover:bg-blue-100 dark:hover:bg-blue-800 transition"
+                      className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-theme-accent-light border-2 border-theme-accent/30 text-sm font-medium text-theme-accent rounded-xl hover:border-theme-accent transition-all"
                     >
                       <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
                         <path d="M2.003 5.884l8 4.8a1 1 0 0 0 .994 0l8-4.8A1 1 0 0 0 18 4H2a1 1 0 0 0 .003 1.884z" />
@@ -383,14 +393,14 @@ export function AddFeedModal({ isOpen, onClose, onAddFeed, isLoading = false, er
                       </svg>
                       <span>Enter npub manually</span>
                     </button>
-                    <p className="mt-1 text-xs text-slate-500 dark:text-slate-400 text-center">Paste an npub (npub1...) to add a Nostr user directly</p>
+                    <p className="mt-2 text-xs text-theme-tertiary text-center">Paste an npub (npub1...) to add a Nostr user directly</p>
                   </div>
                 </>
               ) : (
                 <>
                   {/* Manual NPub Input */}
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
+                    <label className="block text-sm font-medium text-theme-secondary mb-2">
                       Nostr npub
                     </label>
                     <input
@@ -404,9 +414,9 @@ export function AddFeedModal({ isOpen, onClose, onAddFeed, isLoading = false, er
                         setInternalError('') // Clear errors when typing
                       }}
                       placeholder="npub1..."
-                      className="w-full px-3 py-2 bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                      className="input-theme"
                     />
-                    <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                    <p className="mt-2 text-xs text-theme-tertiary">
                       Enter the full npub of the Nostr user you want to follow
                     </p>
                   </div>
@@ -415,7 +425,7 @@ export function AddFeedModal({ isOpen, onClose, onAddFeed, isLoading = false, er
                       setShowManualInput(false)
                       setManualNpub('')
                     }}
-                    className="text-sm text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
+                    className="text-sm font-medium text-theme-accent hover:underline"
                   >
                     ← Back to search
                   </button>
@@ -426,14 +436,14 @@ export function AddFeedModal({ isOpen, onClose, onAddFeed, isLoading = false, er
 
           {/* Category Selection - shown when using categories mode */}
           {organizationMode === 'categories' && (
-            <div className="mt-4">
-              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
+            <div className="mt-6">
+              <label className="block text-sm font-semibold text-theme-secondary mb-2 uppercase tracking-wider">
                 Category (optional)
               </label>
               <select
                 value={selectedCategoryId ?? ''}
                 onChange={(e) => setSelectedCategoryId(e.target.value || null)}
-                className="w-full px-3 py-2 bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="input-theme cursor-pointer"
               >
                 <option value="">No category</option>
                 {categories.map((cat) => (
@@ -443,7 +453,7 @@ export function AddFeedModal({ isOpen, onClose, onAddFeed, isLoading = false, er
                 ))}
               </select>
               {categories.length === 0 && (
-                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                <p className="mt-2 text-xs text-theme-tertiary">
                   No categories yet. Create them in Settings.
                 </p>
               )}
@@ -452,39 +462,39 @@ export function AddFeedModal({ isOpen, onClose, onAddFeed, isLoading = false, er
 
           {/* Tags Input - shown when using tags mode */}
           {organizationMode === 'tags' && (
-            <div className="mt-4">
-              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
+            <div className="mt-6">
+              <label className="block text-sm font-semibold text-theme-secondary mb-2 uppercase tracking-wider">
                 Tags (optional)
               </label>
-              <div className="flex space-x-2">
+              <div className="flex gap-2">
                 <input
                   type="text"
                   value={tagInput}
                   onChange={(e) => setTagInput(e.target.value)}
                   onKeyDown={handleTagInputKeyDown}
                   placeholder="Add a tag..."
-                  className="flex-1 px-3 py-2 bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="input-theme flex-1"
                 />
                 <button
                   type="button"
                   onClick={handleAddTag}
-                  className="px-4 py-2 bg-slate-100 dark:bg-slate-600 hover:bg-slate-200 dark:hover:bg-slate-500 rounded-md text-sm font-medium text-slate-700 dark:text-slate-200"
+                  className="btn-theme-secondary px-4"
                 >
                   Add
                 </button>
               </div>
               {tags.length > 0 && (
-                <div className="flex flex-wrap gap-2 mt-2">
+                <div className="flex flex-wrap gap-2 mt-3">
                   {tags.map((tag) => (
                     <span
                       key={tag}
-                      className="inline-flex items-center px-3 py-1 bg-blue-100 dark:bg-blue-500/30 text-blue-800 dark:text-blue-200 rounded-full text-sm"
+                      className="inline-flex items-center px-3 py-1.5 bg-theme-accent-light text-theme-accent rounded-full text-sm font-medium"
                     >
                       {tag}
                       <button
                         type="button"
                         onClick={() => handleRemoveTag(tag)}
-                        className="ml-2 hover:text-blue-900 dark:hover:text-blue-100"
+                        className="ml-2 hover:opacity-70 transition-opacity"
                       >
                         ×
                       </button>
@@ -497,10 +507,10 @@ export function AddFeedModal({ isOpen, onClose, onAddFeed, isLoading = false, er
         </div>
 
         {/* Footer */}
-        <div className="flex justify-end space-x-3 p-6 border-t border-slate-200 dark:border-slate-700">
+        <div className="flex justify-end gap-3 p-6 border-t border-theme-primary bg-theme-tertiary">
           <button
             onClick={handleClose}
-            className="px-4 py-2 text-sm font-medium text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-600 hover:bg-slate-200 dark:hover:bg-slate-500 rounded-md"
+            className="btn-theme-secondary"
           >
             Cancel
           </button>
@@ -518,7 +528,7 @@ export function AddFeedModal({ isOpen, onClose, onAddFeed, isLoading = false, er
               (feedType === 'RSS' && !rssUrl.trim()) ||
               (feedType === 'NOSTR' && (!manualNpub.trim() || !manualNpub.startsWith('npub1')))
             }
-            className="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 disabled:cursor-not-allowed rounded-md transition-colors"
+            className="btn-theme-primary"
             title={
               feedType === 'NOSTR' && !manualNpub.trim() ? 'Please enter an npub' :
               feedType === 'NOSTR' && !manualNpub.startsWith('npub1') ? 'npub must start with npub1' :

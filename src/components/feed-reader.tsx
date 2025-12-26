@@ -1,7 +1,8 @@
 'use client'
 
 import { useNostrAuth } from '@/contexts/NostrAuthContext'
-import { useTheme } from '@/contexts/ThemeContext'
+import { useTheme, themeConfig } from '@/contexts/ThemeContext'
+import { ThemeSelector, ThemeToggleButton } from './theme-selector'
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { api } from '@/trpc/react'
@@ -51,7 +52,7 @@ const QUICK_MARK_READ_OPTIONS: { value: MarkReadBehavior; label: string; helper:
 
 export function FeedReader() {
   const { user, disconnect } = useNostrAuth()
-  const { theme, toggleTheme } = useTheme()
+  const { theme } = useTheme()
   const router = useRouter()
   const utils = api.useUtils()
   
@@ -405,10 +406,11 @@ export function FeedReader() {
   })
   
   const invalidateFeedData = () => {
+    // Use refetch instead of invalidate for immediate UI updates
+    void utils.feed.getFeeds.refetch()
+    void utils.feed.getUserTags.refetch()
     void utils.feed.getFeedItems.invalidate()
-    void utils.feed.getFeeds.invalidate()
     void utils.feed.getFavorites.invalidate()
-    void utils.feed.getUserTags.invalidate()
   }
 
   // Auto-refresh all feeds function
@@ -468,14 +470,71 @@ export function FeedReader() {
   }, [user?.npub, handleRefreshAllFeeds])
 
   const markAsReadMutation = api.feed.markAsRead.useMutation({
-    onSuccess: (_data, { itemId }) => {
+    onMutate: async ({ itemId }) => {
+      // Cancel outgoing refetches to avoid overwriting optimistic update
+      await utils.feed.getFeeds.cancel()
+      
+      // Optimistically update the feed item cache
       updateFeedItemCache(itemId, () => ({ isRead: true }))
+      
+      // Optimistically update the feeds list unread counts
+      const previousFeeds = utils.feed.getFeeds.getData()
+      if (previousFeeds) {
+        const item = feedItemsData?.items.find(i => i.id === itemId)
+        if (item) {
+          utils.feed.getFeeds.setData(undefined, (old) => {
+            if (!old) return old
+            return old.map(feed => {
+              if (feed.id === item.feedId && feed.unreadCount > 0) {
+                return { ...feed, unreadCount: feed.unreadCount - 1 }
+              }
+              return feed
+            })
+          })
+        }
+      }
+      
+      return { previousFeeds }
+    },
+    onError: (_err, _vars, context) => {
+      // Rollback on error
+      if (context?.previousFeeds) {
+        utils.feed.getFeeds.setData(undefined, context.previousFeeds)
+      }
+    },
+    onSettled: () => {
       invalidateFeedData()
     },
   })
   const markAsUnreadMutation = api.feed.markAsUnread.useMutation({
-    onSuccess: (_data, { itemId }) => {
+    onMutate: async ({ itemId }) => {
+      await utils.feed.getFeeds.cancel()
       updateFeedItemCache(itemId, () => ({ isRead: false }))
+      
+      const previousFeeds = utils.feed.getFeeds.getData()
+      if (previousFeeds) {
+        const item = feedItemsData?.items.find(i => i.id === itemId)
+        if (item) {
+          utils.feed.getFeeds.setData(undefined, (old) => {
+            if (!old) return old
+            return old.map(feed => {
+              if (feed.id === item.feedId) {
+                return { ...feed, unreadCount: feed.unreadCount + 1 }
+              }
+              return feed
+            })
+          })
+        }
+      }
+      
+      return { previousFeeds }
+    },
+    onError: (_err, _vars, context) => {
+      if (context?.previousFeeds) {
+        utils.feed.getFeeds.setData(undefined, context.previousFeeds)
+      }
+    },
+    onSettled: () => {
       invalidateFeedData()
     },
   })
@@ -802,72 +861,74 @@ export function FeedReader() {
   }
 
   return (
-    <div className="flex h-screen bg-slate-50 dark:bg-slate-900">
+    <div className="flex h-screen bg-theme-secondary">
       {/* Mobile Header */}
-      <div className="md:hidden fixed top-0 left-0 right-0 bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 z-50">
+      <div className="md:hidden fixed top-0 left-0 right-0 bg-theme-surface border-b border-theme-primary z-50 shadow-theme-sm">
         <div className="flex items-center justify-between p-4">
           <button
             onClick={() => setShowSidebar(!showSidebar)}
-            className="text-slate-600 dark:text-slate-300 hover:text-slate-800 dark:hover:text-slate-100"
+            className="p-2 rounded-lg hover:bg-theme-hover text-theme-secondary transition-colors"
           >
             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
             </svg>
           </button>
-          <h1 className="text-lg font-semibold text-slate-800 dark:text-slate-100">Nostr Feedz</h1>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={toggleTheme}
-              className="text-slate-600 dark:text-slate-300 hover:text-slate-800 dark:hover:text-slate-100 text-sm"
-              title="Toggle theme"
-            >
-              {theme === 'dark' ? '☀️' : '🌙'}
-            </button>
+          <h1 className="text-lg font-bold text-theme-primary tracking-tight">
+            <span className="text-theme-accent">Nostr</span> Feedz
+          </h1>
+          <div className="flex items-center gap-1">
+            <ThemeToggleButton />
             <button
               onClick={() => setShowSettings(true)}
-              className="text-slate-600 dark:text-slate-300 hover:text-slate-800 dark:hover:text-slate-100 text-sm"
+              className="p-2 rounded-lg hover:bg-theme-hover text-theme-secondary transition-colors"
               title="Settings"
             >
-              ⚙️
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+              </svg>
             </button>
             <button
               onClick={() => setShowAddFeed(true)}
-              className="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 text-sm font-medium"
+              className="p-2 rounded-lg bg-theme-accent hover:bg-theme-accent-hover text-white transition-colors"
+              title="Add Feed"
             >
-              +
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+              </svg>
             </button>
           </div>
         </div>
         
         {/* Mobile Feeds/Tags Toggle */}
-        <div className="px-4 pb-2">
-          <div className="flex bg-slate-100 dark:bg-slate-700 rounded-lg p-1">
+        <div className="px-4 pb-3">
+          <div className="flex bg-theme-tertiary rounded-xl p-1">
             <button
               onClick={() => {
                 setSidebarView('feeds')
                 setSelectedTags([])
                 setShowSidebar(true)
               }}
-              className={`flex-1 px-2 py-1 text-sm rounded-md transition-colors ${
+              className={`flex-1 px-3 py-2 text-sm rounded-lg font-medium transition-all duration-200 ${
                 sidebarView === 'feeds'
-                  ? 'bg-white dark:bg-slate-600 shadow-sm font-medium text-slate-900 dark:text-slate-100'
-                  : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-slate-100'
+                  ? 'bg-theme-surface shadow-theme-sm text-theme-primary'
+                  : 'text-theme-secondary hover:text-theme-primary'
               }`}
             >
-              Feeds
+              📰 Feeds
             </button>
             <button
               onClick={() => {
                 setSidebarView('tags')
                 setShowSidebar(true)
               }}
-              className={`flex-1 px-2 py-1 text-sm rounded-md transition-colors ${
+              className={`flex-1 px-3 py-2 text-sm rounded-lg font-medium transition-all duration-200 ${
                 sidebarView === 'tags'
-                  ? 'bg-white dark:bg-slate-600 shadow-sm font-medium text-slate-900 dark:text-slate-100'
-                  : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-slate-100'
+                  ? 'bg-theme-surface shadow-theme-sm text-theme-primary'
+                  : 'text-theme-secondary hover:text-theme-primary'
               }`}
             >
-              Tags
+              🏷️ {organizationMode === 'categories' ? 'Categories' : 'Tags'}
             </button>
             <button
               onClick={() => {
@@ -875,13 +936,13 @@ export function FeedReader() {
                 setSelectedTags([])
                 setShowSidebar(true)
               }}
-              className={`flex-1 px-2 py-1 text-sm rounded-md transition-colors ${
+              className={`flex-1 px-3 py-2 text-sm rounded-lg font-medium transition-all duration-200 ${
                 sidebarView === 'favorites'
-                  ? 'bg-white dark:bg-slate-600 shadow-sm font-medium text-slate-900 dark:text-slate-100'
-                  : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-slate-100'
+                  ? 'bg-theme-surface shadow-theme-sm text-theme-primary'
+                  : 'text-theme-secondary hover:text-theme-primary'
               }`}
             >
-              ⭐
+              ⭐ Saved
             </button>
           </div>
         </div>
@@ -890,7 +951,7 @@ export function FeedReader() {
       {/* Backdrop for mobile sidebar */}
       {showSidebar && (
         <div 
-          className="md:hidden fixed inset-0 bg-black bg-opacity-50 dark:bg-opacity-70 z-[45]"
+          className="md:hidden fixed inset-0 bg-black/50 backdrop-blur-sm z-[45] transition-opacity"
           onClick={() => setShowSidebar(false)}
         />
       )}
@@ -900,74 +961,81 @@ export function FeedReader() {
         ${showSidebar ? 'translate-x-0' : '-translate-x-full'}
         md:translate-x-0 md:relative
         fixed inset-y-0 left-0 z-50
-        w-64 bg-white dark:bg-slate-800 border-r border-slate-200 dark:border-slate-700 flex flex-col max-h-screen
-        transition-transform duration-300 ease-in-out
+        w-72 bg-theme-surface border-r border-theme-primary flex flex-col max-h-screen
+        transition-transform duration-300 ease-out
         pt-32 md:pt-0
+        shadow-theme-lg md:shadow-none
       `}>
         {/* Header - Hidden on mobile (shown in top bar instead) */}
-        <div className="hidden md:block p-4 border-b border-slate-200 dark:border-slate-700 flex-shrink-0">{/* flex-shrink-0 keeps header fixed */}
-          <div className="flex items-center justify-between mb-3">
-            <h1 className="text-lg font-semibold text-slate-800 dark:text-slate-100">Nostr Feedz</h1>
-            <div className="flex items-center gap-2">
+        <div className="hidden md:block p-5 border-b border-theme-primary flex-shrink-0">
+          <div className="flex items-center justify-between mb-4">
+            <h1 className="text-xl font-bold text-theme-primary tracking-tight">
+              <span className="text-theme-accent">Nostr</span> Feedz
+            </h1>
+            <div className="flex items-center gap-1">
               <button
                 onClick={handleRefreshAllFeeds}
                 disabled={isRefreshingAll}
-                className={`text-slate-600 dark:text-slate-300 hover:text-slate-800 dark:hover:text-slate-100 text-sm ${isRefreshingAll ? 'animate-spin' : ''}`}
+                className={`p-2 rounded-lg hover:bg-theme-hover text-theme-secondary transition-all ${isRefreshingAll ? 'animate-spin' : ''}`}
                 title={isRefreshingAll ? 'Refreshing...' : `Refresh all feeds${lastRefreshTime ? ` (last: ${new Date(lastRefreshTime).toLocaleTimeString()})` : ''}`}
               >
-                🔄
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
               </button>
-              <button
-                onClick={toggleTheme}
-                className="text-slate-600 dark:text-slate-300 hover:text-slate-800 dark:hover:text-slate-100 text-sm"
-                title="Toggle theme"
-              >
-                {theme === 'dark' ? '☀️' : '🌙'}
-              </button>
+              <ThemeSelector showLabels={false} />
               <button
                 onClick={() => setShowSettings(true)}
-                className="text-slate-600 dark:text-slate-300 hover:text-slate-800 dark:hover:text-slate-100 text-sm"
+                className="p-2 rounded-lg hover:bg-theme-hover text-theme-secondary transition-colors"
                 title="Settings"
               >
-                ⚙️
-              </button>
-              <button
-                onClick={() => setShowAddFeed(true)}
-                className="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 text-sm font-medium"
-              >
-                Add Feed
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                </svg>
               </button>
             </div>
           </div>
-          <div className="text-xs text-slate-600 dark:text-slate-400 truncate flex items-center gap-2">
-            <span>{user?.npub}</span>
-            {isRefreshingAll && <span className="text-blue-500">Refreshing feeds...</span>}
+          <button
+            onClick={() => setShowAddFeed(true)}
+            className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-theme-accent hover:bg-theme-accent-hover text-white rounded-xl font-medium transition-colors shadow-theme-sm"
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+            </svg>
+            Add Feed
+          </button>
+          <div className="mt-3 text-xs text-theme-tertiary truncate flex items-center gap-2">
+            <span className="font-mono">{user?.npub?.slice(0, 20)}...</span>
+            {isRefreshingAll && (
+              <span className="text-theme-accent animate-pulse-subtle">Refreshing...</span>
+            )}
           </div>
         </div>
 
         {/* View Toggle */}
-        <div className="px-4 py-2 border-b border-slate-200 dark:border-slate-700 flex-shrink-0">
-          <div className="flex bg-slate-100 dark:bg-slate-700 rounded-lg p-1">
+        <div className="px-4 py-3 border-b border-theme-primary flex-shrink-0">
+          <div className="flex bg-theme-tertiary rounded-xl p-1">
             <button
               onClick={() => {
                 setSidebarView('feeds')
                 setSelectedTags([])
                 setSelectedCategoryId(null)
               }}
-              className={`flex-1 px-2 py-1 text-sm rounded-md transition-colors ${
+              className={`flex-1 px-3 py-2 text-sm rounded-lg font-medium transition-all duration-200 ${
                 sidebarView === 'feeds'
-                  ? 'bg-white dark:bg-slate-600 shadow-sm font-medium text-slate-900 dark:text-slate-100'
-                  : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-slate-100'
+                  ? 'bg-theme-surface shadow-theme-sm text-theme-primary'
+                  : 'text-theme-secondary hover:text-theme-primary'
               }`}
             >
               Feeds
             </button>
             <button
               onClick={() => setSidebarView('tags')}
-              className={`flex-1 px-2 py-1 text-sm rounded-md transition-colors ${
+              className={`flex-1 px-3 py-2 text-sm rounded-lg font-medium transition-all duration-200 ${
                 sidebarView === 'tags'
-                  ? 'bg-white dark:bg-slate-600 shadow-sm font-medium text-slate-900 dark:text-slate-100'
-                  : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-slate-100'
+                  ? 'bg-theme-surface shadow-theme-sm text-theme-primary'
+                  : 'text-theme-secondary hover:text-theme-primary'
               }`}
             >
               {organizationMode === 'categories' ? 'Categories' : 'Tags'}
@@ -978,10 +1046,10 @@ export function FeedReader() {
                 setSelectedTags([])
                 setSelectedCategoryId(null)
               }}
-              className={`flex-1 px-2 py-1 text-sm rounded-md transition-colors ${
+              className={`flex-1 px-3 py-2 text-sm rounded-lg font-medium transition-all duration-200 ${
                 sidebarView === 'favorites'
-                  ? 'bg-white dark:bg-slate-600 shadow-sm font-medium text-slate-900 dark:text-slate-100'
-                  : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-slate-100'
+                  ? 'bg-theme-surface shadow-theme-sm text-theme-primary'
+                  : 'text-theme-secondary hover:text-theme-primary'
               }`}
             >
               ⭐
@@ -991,26 +1059,26 @@ export function FeedReader() {
 
         {/* Active Tag Filters */}
         {selectedTags.length > 0 && (
-          <div className="px-4 py-2 border-b border-slate-200 bg-blue-50 dark:bg-blue-900/20 flex-shrink-0">
-            <div className="flex items-center justify-between mb-1">
-              <span className="text-xs font-medium text-blue-900 dark:text-blue-300">Filtered by:</span>
+          <div className="px-4 py-3 border-b border-theme-primary bg-theme-accent-light flex-shrink-0">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs font-semibold text-theme-accent uppercase tracking-wider">Filtered by</span>
               <button
                 onClick={handleClearTags}
-                className="text-xs text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
+                className="text-xs font-medium text-theme-accent hover:underline"
               >
-                Clear
+                Clear all
               </button>
             </div>
-            <div className="flex flex-wrap gap-1">
+            <div className="flex flex-wrap gap-1.5">
               {selectedTags.map(tag => (
                 <span
                   key={tag}
-                  className="inline-flex items-center px-2 py-1 bg-blue-100 dark:bg-blue-500/30 text-blue-800 dark:text-blue-200 rounded text-xs"
+                  className="inline-flex items-center px-2.5 py-1 bg-theme-surface rounded-full text-xs font-medium text-theme-accent shadow-theme-sm"
                 >
                   {tag}
                   <button
                     onClick={() => handleToggleTag(tag)}
-                    className="ml-1 hover:text-blue-900 dark:hover:text-blue-100"
+                    className="ml-1.5 hover:text-theme-accent-hover"
                   >
                     ×
                   </button>
@@ -1022,12 +1090,14 @@ export function FeedReader() {
 
         {/* Feeds List */}
         {sidebarView === 'feeds' && (
-          <div className="flex-1 overflow-y-auto">{/* Scrollable feed list */}
+          <div className="flex-1 overflow-y-auto themed-scrollbar">
           {allFeeds.map((feed) => (
             <div
               key={feed.id}
-              className={`relative group w-full text-left hover:bg-slate-50 dark:hover:bg-slate-700/50 border-b border-slate-100 dark:border-slate-700 ${
-                selectedFeed === feed.id ? 'bg-blue-50 dark:bg-blue-900/30 border-l-4 border-l-blue-500' : ''
+              className={`relative group w-full text-left transition-all duration-150 ${
+                selectedFeed === feed.id 
+                  ? 'bg-theme-accent-light border-l-4 border-l-[rgb(var(--color-accent))]' 
+                  : 'hover:bg-theme-hover border-l-4 border-l-transparent'
               }`}
             >
               <button
@@ -1035,40 +1105,42 @@ export function FeedReader() {
                   setSelectedFeed(feed.id)
                   setShowSidebar(false)
                 }}
-                className="w-full px-4 py-2"
+                className="w-full px-4 py-3"
               >
                 <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-2">
-                    <span className="text-xs">
-                      {feed.type === 'RSS' ? '📰' : feed.type === 'NOSTR_VIDEO' ? '🎬' : '⚡'}
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <span className={`text-base flex-shrink-0 ${feed.id === 'all' ? 'opacity-80' : ''}`}>
+                      {feed.id === 'all' ? '📚' : feed.type === 'RSS' ? '📰' : feed.type === 'NOSTR_VIDEO' ? '🎬' : '⚡'}
                     </span>
-                    <span className="text-sm font-medium text-slate-800 dark:text-slate-100 truncate">
+                    <span className={`text-sm font-medium truncate ${
+                      selectedFeed === feed.id ? 'text-theme-accent' : 'text-theme-primary'
+                    }`}>
                       {feed.title}
                     </span>
                   </div>
                   {feed.unreadCount > 0 && (
-                    <span className="text-xs bg-blue-500 text-white rounded-full px-2 py-1 min-w-[20px] text-center">
-                      {feed.unreadCount}
+                    <span className="unread-badge flex-shrink-0 ml-2">
+                      {feed.unreadCount > 99 ? '99+' : feed.unreadCount}
                     </span>
                   )}
                 </div>
                 {feed.url && (
-                  <div className="text-xs text-slate-500 dark:text-slate-400 truncate mt-1">
+                  <div className="text-xs text-theme-tertiary truncate mt-1 ml-7">
                     {new URL(feed.url).hostname}
                   </div>
                 )}
                 {feed.npub && (
-                  <div className="text-xs text-slate-500 dark:text-slate-400 truncate mt-1">
+                  <div className="text-xs text-theme-tertiary truncate mt-1 ml-7 font-mono">
                     {feed.npub.slice(0, 16)}...
                   </div>
                 )}
                 {/* Show tags if any */}
                 {feed.tags && feed.tags.length > 0 && (
-                  <div className="flex flex-wrap gap-1 mt-1">
+                  <div className="flex flex-wrap gap-1 mt-2 ml-7">
                     {feed.tags.map(tag => (
                       <span
                         key={tag}
-                        className="inline-block px-1.5 py-0.5 bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 rounded text-[10px]"
+                        className="tag-badge"
                       >
                         {tag}
                       </span>
@@ -1079,21 +1151,23 @@ export function FeedReader() {
               
               {/* Menu button - only show for actual feeds, not "All Items" */}
               {feed.id !== 'all' && (
-                <div className="absolute right-2 top-2">
+                <div className="absolute right-3 top-3">
                   <button
                     onClick={(e) => {
                       e.stopPropagation()
                       setOpenMenuFeedId(openMenuFeedId === feed.id ? null : feed.id)
                     }}
-                    className="opacity-0 group-hover:opacity-100 bg-slate-200 dark:bg-slate-600 hover:bg-slate-300 dark:hover:bg-slate-500 text-slate-700 dark:text-slate-200 rounded-full w-6 h-6 flex items-center justify-center text-sm"
+                    className="opacity-0 group-hover:opacity-100 p-1.5 rounded-lg bg-theme-tertiary hover:bg-theme-hover text-theme-secondary transition-all"
                     title="Menu"
                   >
-                    ⋮
+                    <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                      <path d="M10 6a2 2 0 110-4 2 2 0 010 4zM10 12a2 2 0 110-4 2 2 0 010 4zM10 18a2 2 0 110-4 2 2 0 010 4z" />
+                    </svg>
                   </button>
                   
                   {/* Dropdown menu */}
                   {openMenuFeedId === feed.id && !showCategoryPicker && (
-                    <div className="absolute right-0 mt-1 w-48 bg-white dark:bg-slate-700 rounded-lg shadow-lg border border-slate-200 dark:border-slate-600 z-10">
+                    <div className="absolute right-0 mt-1 w-52 dropdown-menu animate-slide-in">
                       <button
                         onClick={(e) => {
                           e.stopPropagation()
@@ -1101,9 +1175,12 @@ export function FeedReader() {
                           setOpenMenuFeedId(null)
                         }}
                         disabled={refreshFeedMutation.isLoading || refreshNostrFeedMutation.isLoading}
-                        className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-600 disabled:opacity-50 rounded-t-lg"
+                        className="dropdown-item flex items-center gap-2 disabled:opacity-50"
                       >
-                        🔄 Refresh
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                        </svg>
+                        Refresh
                       </button>
                       <button
                         onClick={(e) => {
@@ -1111,9 +1188,12 @@ export function FeedReader() {
                           handleMarkAllAsRead(feed.id)
                         }}
                         disabled={markAllAsReadMutation.isLoading || feed.unreadCount === 0}
-                        className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-600 disabled:opacity-50 border-t border-slate-100 dark:border-slate-600"
+                        className="dropdown-item flex items-center gap-2 disabled:opacity-50"
                       >
-                        ✓ Mark All as Read
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                        </svg>
+                        Mark All Read
                       </button>
                       {organizationMode === 'categories' && (
                         <button
@@ -1121,13 +1201,16 @@ export function FeedReader() {
                             e.stopPropagation()
                             setShowCategoryPicker(feed.id)
                           }}
-                          className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-600 border-t border-slate-100 dark:border-slate-600"
+                          className="dropdown-item flex items-center gap-2"
                         >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+                          </svg>
                           {(() => {
                             const cat = categories?.find((c: any) => c.id === feed.categoryId)
                             return cat 
-                              ? <span>📁 <span className="text-slate-500 dark:text-slate-400">{cat.icon || '📁'} {cat.name}</span></span>
-                              : '📁 Set Category'
+                              ? <span className="truncate">{cat.icon || '📁'} {cat.name}</span>
+                              : 'Set Category'
                           })()}
                         </button>
                       )}
@@ -1138,52 +1221,61 @@ export function FeedReader() {
                             const currentFeed = feeds.find((f: any) => f.id === feed.id)
                             handleOpenEditMenu(feed.id, currentFeed?.tags || [])
                           }}
-                          className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-600 border-t border-slate-100 dark:border-slate-600"
+                          className="dropdown-item flex items-center gap-2"
                         >
-                          🏷️ Edit Tags
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
+                          </svg>
+                          Edit Tags
                         </button>
                       )}
+                      <div className="border-t border-theme-primary my-1" />
                       <button
                         onClick={(e) => {
                           e.stopPropagation()
                           handleRemoveFeed(feed.id, feed.title)
                           setOpenMenuFeedId(null)
                         }}
-                        className="w-full text-left px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-slate-50 dark:hover:bg-slate-600 border-t border-slate-100 dark:border-slate-600 rounded-b-lg"
+                        className="dropdown-item flex items-center gap-2 text-red-600 hover:bg-red-50"
                       >
-                        🗑️ Delete
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                        </svg>
+                        Unsubscribe
                       </button>
                     </div>
                   )}
                   
                   {/* Category Picker Dropdown */}
                   {showCategoryPicker === feed.id && (
-                    <div className="absolute right-0 mt-1 w-56 bg-white dark:bg-slate-700 rounded-lg shadow-lg border border-slate-200 dark:border-slate-600 z-10">
-                      <div className="px-3 py-2 border-b border-slate-200 dark:border-slate-600 flex items-center justify-between">
-                        <span className="text-sm font-medium text-slate-700 dark:text-slate-200">Set Category</span>
+                    <div className="absolute right-0 mt-1 w-60 dropdown-menu animate-slide-in">
+                      <div className="px-3 py-2 border-b border-theme-primary flex items-center justify-between">
+                        <span className="text-sm font-semibold text-theme-primary">Set Category</span>
                         <button
                           onClick={(e) => {
                             e.stopPropagation()
                             setShowCategoryPicker(null)
                             setOpenMenuFeedId(null)
                           }}
-                          className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                          className="p-1 rounded hover:bg-theme-hover text-theme-tertiary"
                         >
-                          ✕
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                          </svg>
                         </button>
                       </div>
-                      <div className="max-h-48 overflow-y-auto">
+                      <div className="max-h-48 overflow-y-auto themed-scrollbar py-1">
                         <button
                           onClick={(e) => {
                             e.stopPropagation()
                             updateCategoryMutation.mutate({ feedId: feed.id, categoryId: null })
                           }}
-                          className={`w-full text-left px-3 py-2 text-sm hover:bg-slate-50 dark:hover:bg-slate-600 flex items-center gap-2 ${
-                            !feed.categoryId ? 'bg-blue-50 dark:bg-blue-900/30' : ''
+                          className={`dropdown-item flex items-center gap-2 ${
+                            !feed.categoryId ? 'active' : ''
                           }`}
                         >
                           <span className="text-base">📋</span>
-                          <span className="text-slate-700 dark:text-slate-200">No Category</span>
+                          <span>No Category</span>
                         </button>
                         {categories.map((cat) => (
                           <button
@@ -1192,22 +1284,22 @@ export function FeedReader() {
                               e.stopPropagation()
                               updateCategoryMutation.mutate({ feedId: feed.id, categoryId: cat.id })
                             }}
-                            className={`w-full text-left px-3 py-2 text-sm hover:bg-slate-50 dark:hover:bg-slate-600 flex items-center gap-2 ${
-                              feed.categoryId === cat.id ? 'bg-blue-50 dark:bg-blue-900/30' : ''
+                            className={`dropdown-item flex items-center gap-2 ${
+                              feed.categoryId === cat.id ? 'active' : ''
                             }`}
                           >
                             <span 
-                              className="w-5 h-5 rounded flex items-center justify-center text-xs"
-                              style={{ backgroundColor: cat.color ?? '#94a3b8' }}
+                              className="w-6 h-6 rounded-lg flex items-center justify-center text-sm"
+                              style={{ backgroundColor: cat.color ?? 'rgb(var(--color-bg-tertiary))' }}
                             >
                               {cat.icon || '📁'}
                             </span>
-                            <span className="text-slate-700 dark:text-slate-200">{cat.name}</span>
+                            <span className="truncate">{cat.name}</span>
                           </button>
                         ))}
                       </div>
                       {categories.length === 0 && (
-                        <div className="px-3 py-3 text-xs text-slate-500 dark:text-slate-400 text-center">
+                        <div className="px-3 py-4 text-xs text-theme-tertiary text-center">
                           No categories yet. Create them in Settings.
                         </div>
                       )}
@@ -1222,28 +1314,28 @@ export function FeedReader() {
 
         {/* Tags/Categories List */}
         {sidebarView === 'tags' && (
-          <div className="flex-1 overflow-y-auto flex flex-col">
+          <div className="flex-1 overflow-y-auto themed-scrollbar flex flex-col">
             {/* Sort Options - only for tags mode */}
             {organizationMode === 'tags' && (
-              <div className="px-4 py-2 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between flex-shrink-0">
-                <span className="text-xs font-medium text-slate-500 dark:text-slate-400">Sort by:</span>
-                <div className="flex bg-slate-100 dark:bg-slate-700 rounded-md p-0.5">
+              <div className="px-4 py-3 border-b border-theme-primary flex items-center justify-between flex-shrink-0">
+                <span className="text-xs font-semibold text-theme-tertiary uppercase tracking-wider">Sort by</span>
+                <div className="flex bg-theme-tertiary rounded-lg p-0.5">
                   <button
                     onClick={() => setTagSortOrder('alphabetical')}
-                    className={`px-2 py-1 text-xs rounded transition-colors ${
+                    className={`px-2.5 py-1 text-xs rounded-md font-medium transition-all ${
                       tagSortOrder === 'alphabetical'
-                        ? 'bg-white dark:bg-slate-600 shadow-sm font-medium text-slate-900 dark:text-slate-100'
-                        : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-slate-100'
+                        ? 'bg-theme-surface shadow-theme-sm text-theme-primary'
+                        : 'text-theme-secondary hover:text-theme-primary'
                     }`}
                   >
                     A-Z
                   </button>
                   <button
                     onClick={() => setTagSortOrder('unread')}
-                    className={`px-2 py-1 text-xs rounded transition-colors ${
+                    className={`px-2.5 py-1 text-xs rounded-md font-medium transition-all ${
                       tagSortOrder === 'unread'
-                        ? 'bg-white dark:bg-slate-600 shadow-sm font-medium text-slate-900 dark:text-slate-100'
-                        : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-slate-100'
+                        ? 'bg-theme-surface shadow-theme-sm text-theme-primary'
+                        : 'text-theme-secondary hover:text-theme-primary'
                     }`}
                   >
                     Unread
@@ -1256,22 +1348,26 @@ export function FeedReader() {
             {organizationMode === 'categories' && (
               <>
                 {categoriesWithUnread.length === 0 ? (
-                  <div className="p-4 text-center text-slate-500 dark:text-slate-400 text-sm">
-                    No categories yet. Create them in Settings!
+                  <div className="p-6 text-center">
+                    <div className="text-4xl mb-3">📁</div>
+                    <p className="text-sm text-theme-secondary">No categories yet</p>
+                    <p className="text-xs text-theme-tertiary mt-1">Create them in Settings!</p>
                   </div>
                 ) : (
-                  <div className="flex-1 overflow-y-auto">
+                  <div className="flex-1 overflow-y-auto themed-scrollbar">
                     {/* All Items option */}
                     <button
                       onClick={() => setSelectedCategoryId(null)}
-                      className={`w-full px-4 py-3 text-left hover:bg-slate-50 dark:hover:bg-slate-700/50 border-b border-slate-100 dark:border-slate-700 ${
-                        !selectedCategoryId ? 'bg-blue-50 dark:bg-blue-900/30 border-l-4 border-l-blue-500' : ''
+                      className={`w-full px-4 py-3 text-left transition-all duration-150 ${
+                        !selectedCategoryId 
+                          ? 'bg-theme-accent-light border-l-4 border-l-[rgb(var(--color-accent))]' 
+                          : 'hover:bg-theme-hover border-l-4 border-l-transparent'
                       }`}
                     >
                       <div className="flex items-center justify-between">
-                        <div className="flex items-center space-x-2">
+                        <div className="flex items-center gap-2.5">
                           <span className="text-lg">📋</span>
-                          <span className="text-sm font-medium text-slate-800 dark:text-slate-100">
+                          <span className={`text-sm font-medium ${!selectedCategoryId ? 'text-theme-accent' : 'text-theme-primary'}`}>
                             All Categories
                           </span>
                         </div>
@@ -1281,27 +1377,29 @@ export function FeedReader() {
                       <button
                         key={cat.id}
                         onClick={() => setSelectedCategoryId(cat.id)}
-                        className={`w-full px-4 py-3 text-left hover:bg-slate-50 dark:hover:bg-slate-700/50 border-b border-slate-100 dark:border-slate-700 ${
-                          selectedCategoryId === cat.id ? 'bg-blue-50 dark:bg-blue-900/30 border-l-4 border-l-blue-500' : ''
+                        className={`w-full px-4 py-3 text-left transition-all duration-150 ${
+                          selectedCategoryId === cat.id 
+                            ? 'bg-theme-accent-light border-l-4 border-l-[rgb(var(--color-accent))]' 
+                            : 'hover:bg-theme-hover border-l-4 border-l-transparent'
                         }`}
                       >
                         <div className="flex items-center justify-between">
-                          <div className="flex items-center space-x-2">
+                          <div className="flex items-center gap-2.5">
                             <span 
-                              className="w-6 h-6 rounded flex items-center justify-center text-sm"
-                              style={{ backgroundColor: cat.color ?? '#94a3b8' }}
+                              className="w-7 h-7 rounded-lg flex items-center justify-center text-base shadow-theme-sm"
+                              style={{ backgroundColor: cat.color ?? 'rgb(var(--color-bg-tertiary))' }}
                             >
                               {cat.icon || '📁'}
                             </span>
-                            <span className="text-sm font-medium text-slate-800 dark:text-slate-100">
+                            <span className={`text-sm font-medium ${selectedCategoryId === cat.id ? 'text-theme-accent' : 'text-theme-primary'}`}>
                               {cat.name}
                             </span>
                           </div>
-                          <div className="flex items-center space-x-2 text-xs">
-                            <span className="text-slate-500 dark:text-slate-400">{cat.feedCount} feeds</span>
+                          <div className="flex items-center gap-2 text-xs">
+                            <span className="text-theme-tertiary">{cat.feedCount}</span>
                             {cat.unreadCount > 0 && (
-                              <span className="bg-blue-600 text-white rounded-full px-2 py-0.5 min-w-[20px] text-center">
-                                {cat.unreadCount}
+                              <span className="unread-badge">
+                                {cat.unreadCount > 99 ? '99+' : cat.unreadCount}
                               </span>
                             )}
                           </div>
@@ -1317,33 +1415,43 @@ export function FeedReader() {
             {organizationMode === 'tags' && (
               <>
                 {filteredTags.length === 0 ? (
-                  <div className="p-4 text-center text-slate-500 dark:text-slate-400 text-sm">
-                    {selectedTags.length > 0 
-                      ? 'No additional tags found in filtered feeds'
-                      : 'No tags yet. Add tags when subscribing to feeds!'}
+                  <div className="p-6 text-center">
+                    <div className="text-4xl mb-3">🏷️</div>
+                    <p className="text-sm text-theme-secondary">
+                      {selectedTags.length > 0 
+                        ? 'No additional tags found'
+                        : 'No tags yet'}
+                    </p>
+                    <p className="text-xs text-theme-tertiary mt-1">
+                      {selectedTags.length > 0 
+                        ? 'Try clearing your filter'
+                        : 'Add tags when subscribing to feeds!'}
+                    </p>
                   </div>
                 ) : (
-                  <div className="flex-1 overflow-y-auto">
+                  <div className="flex-1 overflow-y-auto themed-scrollbar">
                     {filteredTags.map(({ tag, unreadCount, feedCount }) => (
                       <button
                         key={tag}
                         onClick={() => handleToggleTag(tag)}
-                        className={`w-full px-4 py-3 text-left hover:bg-slate-50 dark:hover:bg-slate-700/50 border-b border-slate-100 dark:border-slate-700 ${
-                          selectedTags.includes(tag) ? 'bg-blue-50 dark:bg-blue-900/30 border-l-4 border-l-blue-500' : ''
+                        className={`w-full px-4 py-3 text-left transition-all duration-150 ${
+                          selectedTags.includes(tag) 
+                            ? 'bg-theme-accent-light border-l-4 border-l-[rgb(var(--color-accent))]' 
+                            : 'hover:bg-theme-hover border-l-4 border-l-transparent'
                         }`}
                       >
                         <div className="flex items-center justify-between">
-                          <div className="flex items-center space-x-2">
-                            <span className="text-xs">🏷️</span>
-                            <span className="text-sm font-medium text-slate-800 dark:text-slate-100">
+                          <div className="flex items-center gap-2.5">
+                            <span className="text-base">🏷️</span>
+                            <span className={`text-sm font-medium ${selectedTags.includes(tag) ? 'text-theme-accent' : 'text-theme-primary'}`}>
                               {tag}
                             </span>
                           </div>
-                          <div className="flex items-center space-x-2 text-xs">
-                            <span className="text-slate-500 dark:text-slate-400">{feedCount} feeds</span>
+                          <div className="flex items-center gap-2 text-xs">
+                            <span className="text-theme-tertiary">{feedCount} feeds</span>
                             {unreadCount > 0 && (
-                              <span className="bg-blue-600 text-white rounded-full px-2 py-0.5 min-w-[20px] text-center">
-                                {unreadCount}
+                              <span className="unread-badge">
+                                {unreadCount > 99 ? '99+' : unreadCount}
                               </span>
                             )}
                           </div>
@@ -1359,21 +1467,30 @@ export function FeedReader() {
 
         {/* Favorites List */}
         {sidebarView === 'favorites' && (
-          <div className="flex-1 overflow-y-auto">
+          <div className="flex-1 overflow-y-auto themed-scrollbar">
             {favoritesLoading ? (
-              <div className="p-4 text-center text-slate-500 dark:text-slate-400 text-sm">
-                Loading favorites...
+              <div className="p-6 space-y-3">
+                {[1, 2, 3].map(i => (
+                  <div key={i} className="space-y-2">
+                    <div className="skeleton h-4 w-3/4" />
+                    <div className="skeleton h-3 w-1/2" />
+                  </div>
+                ))}
               </div>
             ) : !favoritesData?.items || favoritesData.items.length === 0 ? (
-              <div className="p-4 text-center text-slate-500 dark:text-slate-400 text-sm">
-                No favorites yet. Star items to save them here!
+              <div className="p-6 text-center">
+                <div className="text-4xl mb-3">⭐</div>
+                <p className="text-sm text-theme-secondary">No favorites yet</p>
+                <p className="text-xs text-theme-tertiary mt-1">Star items to save them here!</p>
               </div>
             ) : (
               favoritesData.items.map((item: any) => (
                 <div
                   key={item.id}
-                  className={`w-full px-4 py-3 text-left hover:bg-slate-50 dark:hover:bg-slate-700/50 border-b border-slate-100 dark:border-slate-700 ${
-                    selectedItem === item.id ? 'bg-blue-50 dark:bg-blue-900/30 border-l-4 border-l-blue-500' : ''
+                  className={`w-full px-4 py-3 text-left transition-all duration-150 group ${
+                    selectedItem === item.id 
+                      ? 'bg-theme-accent-light border-l-4 border-l-[rgb(var(--color-accent))]' 
+                      : 'hover:bg-theme-hover border-l-4 border-l-transparent'
                   }`}
                 >
                   <div className="flex items-start gap-3">
@@ -1382,19 +1499,19 @@ export function FeedReader() {
                         setSelectedItem(item.id)
                         setMobileView('content')
                       }}
-                      className="flex-1 text-left"
+                      className="flex-1 text-left min-w-0"
                     >
-                      <div className="flex items-center space-x-2 mb-1">
+                      <div className="flex items-center gap-2 mb-1">
                         <span className="text-xs">⭐</span>
-                        <span className="text-xs text-slate-500 dark:text-slate-400 truncate">
+                        <span className="text-xs text-theme-tertiary truncate">
                           {item.feedTitle || 'Unknown Feed'}
                         </span>
                       </div>
-                      <h3 className="text-sm font-medium text-slate-800 dark:text-slate-100 mb-1 line-clamp-2">
+                      <h3 className="text-sm font-medium text-theme-primary mb-1 line-clamp-2">
                         {item.title}
                       </h3>
                       {item.snippet && (
-                        <p className="text-xs text-slate-600 dark:text-slate-300 line-clamp-2">
+                        <p className="text-xs text-theme-secondary line-clamp-2">
                           {item.snippet}
                         </p>
                       )}
@@ -1404,10 +1521,12 @@ export function FeedReader() {
                         e.stopPropagation()
                         handleToggleFavorite(item.id, true)
                       }}
-                      className="p-2 text-xs text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/40 rounded-md"
+                      className="opacity-0 group-hover:opacity-100 p-1.5 text-xs text-red-500 hover:bg-red-50 rounded-lg transition-all"
                       title="Remove from favorites"
                     >
-                      Remove
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                      </svg>
                     </button>
                   </div>
                 </div>
@@ -1417,11 +1536,14 @@ export function FeedReader() {
         )}
 
         {/* Footer */}
-        <div className="p-4 border-t border-slate-200 dark:border-slate-700 flex-shrink-0">{/* flex-shrink-0 keeps footer fixed */}
+        <div className="p-4 border-t border-theme-primary flex-shrink-0">
           <button
             onClick={handleSignOut}
-            className="text-sm text-slate-600 dark:text-slate-300 hover:text-slate-800 dark:hover:text-slate-100"
+            className="flex items-center gap-2 text-sm text-theme-secondary hover:text-theme-primary transition-colors"
           >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+            </svg>
             Sign Out
           </button>
         </div>
@@ -1430,12 +1552,12 @@ export function FeedReader() {
       {/* Center Panel - Article List */}
       <div className={`
         ${mobileView === 'content' && selectedItem ? 'hidden md:flex' : 'flex'}
-        w-full md:w-96 bg-white dark:bg-slate-800 border-r border-slate-200 dark:border-slate-700 flex-col max-h-screen
+        w-full md:w-96 bg-theme-surface border-r border-theme-primary flex-col max-h-screen
         pt-32 md:pt-0
       `}>
-        <div className="p-4 border-b border-slate-200 dark:border-slate-700 flex-shrink-0">
-          <div className="flex items-center justify-between mb-2">
-            <h2 className="font-semibold text-slate-800 dark:text-slate-100">
+        <div className="p-5 border-b border-theme-primary flex-shrink-0">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="font-bold text-lg text-theme-primary">
               {selectedFeed === 'all' ? 'All Items' : 
                allFeeds.find(f => f.id === selectedFeed)?.title || 'Select a feed'}
             </h2>
@@ -1447,7 +1569,7 @@ export function FeedReader() {
                   e.stopPropagation()
                   setShowViewOptions(!showViewOptions)
                 }}
-                className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-md text-slate-600 dark:text-slate-300 hover:text-slate-800 dark:hover:text-slate-100"
+                className="p-2 hover:bg-theme-hover rounded-lg text-theme-secondary hover:text-theme-primary transition-colors"
                 title="View options"
               >
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1457,18 +1579,16 @@ export function FeedReader() {
               
               {/* Dropdown menu */}
               {showViewOptions && (
-                <div className="absolute right-0 mt-1 w-44 bg-white dark:bg-slate-700 rounded-lg shadow-lg border border-slate-200 dark:border-slate-600 z-10">
+                <div className="absolute right-0 mt-2 w-48 dropdown-menu animate-slide-in">
                   <div className="py-1">
-                    <div className="px-3 py-1 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase">Show</div>
+                    <div className="px-3 py-2 text-xs font-semibold text-theme-tertiary uppercase tracking-wider">Show</div>
                     <button
                       onClick={(e) => {
                         e.stopPropagation()
                         setViewFilter('all')
                         setShowViewOptions(false)
                       }}
-                      className={`w-full text-left px-3 py-2 text-sm hover:bg-slate-50 dark:hover:bg-slate-600 ${
-                        viewFilter === 'all' ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300' : 'text-slate-700 dark:text-slate-200'
-                      }`}
+                      className={`dropdown-item ${viewFilter === 'all' ? 'active' : ''}`}
                     >
                       {viewFilter === 'all' && '✓ '}All Items
                     </button>
@@ -1478,9 +1598,7 @@ export function FeedReader() {
                         setViewFilter('unread')
                         setShowViewOptions(false)
                       }}
-                      className={`w-full text-left px-3 py-2 text-sm hover:bg-slate-50 dark:hover:bg-slate-600 ${
-                        viewFilter === 'unread' ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300' : 'text-slate-700 dark:text-slate-200'
-                      }`}
+                      className={`dropdown-item ${viewFilter === 'unread' ? 'active' : ''}`}
                     >
                       {viewFilter === 'unread' && '✓ '}Unread Only
                     </button>
@@ -1490,24 +1608,20 @@ export function FeedReader() {
                         setViewFilter('read')
                         setShowViewOptions(false)
                       }}
-                      className={`w-full text-left px-3 py-2 text-sm hover:bg-slate-50 dark:hover:bg-slate-600 ${
-                        viewFilter === 'read' ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300' : 'text-slate-700 dark:text-slate-200'
-                      }`}
+                      className={`dropdown-item ${viewFilter === 'read' ? 'active' : ''}`}
                     >
                       {viewFilter === 'read' && '✓ '}Read Only
                     </button>
                     
-                    <div className="border-t border-slate-100 dark:border-slate-600 mt-1 pt-1">
-                      <div className="px-3 py-1 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase">Sort</div>
+                    <div className="border-t border-theme-primary mt-1 pt-1">
+                      <div className="px-3 py-2 text-xs font-semibold text-theme-tertiary uppercase tracking-wider">Sort</div>
                       <button
                         onClick={(e) => {
                           e.stopPropagation()
                           setSortOrder('newest')
                           setShowViewOptions(false)
                         }}
-                        className={`w-full text-left px-3 py-2 text-sm hover:bg-slate-50 dark:hover:bg-slate-600 ${
-                          sortOrder === 'newest' ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300' : 'text-slate-700 dark:text-slate-200'
-                        }`}
+                        className={`dropdown-item ${sortOrder === 'newest' ? 'active' : ''}`}
                       >
                         {sortOrder === 'newest' && '✓ '}Newest First
                       </button>
@@ -1517,16 +1631,14 @@ export function FeedReader() {
                           setSortOrder('oldest')
                           setShowViewOptions(false)
                         }}
-                        className={`w-full text-left px-3 py-2 text-sm hover:bg-slate-50 dark:hover:bg-slate-600 ${
-                          sortOrder === 'oldest' ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300' : 'text-slate-700 dark:text-slate-200'
-                        }`}
+                        className={`dropdown-item ${sortOrder === 'oldest' ? 'active' : ''}`}
                       >
                         {sortOrder === 'oldest' && '✓ '}Oldest First
                       </button>
                     </div>
 
-                    <div className="border-t border-slate-100 dark:border-slate-600 mt-1 pt-1">
-                      <div className="px-3 py-1 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase">Mark as read</div>
+                    <div className="border-t border-theme-primary mt-1 pt-1">
+                      <div className="px-3 py-2 text-xs font-semibold text-theme-tertiary uppercase tracking-wider">Mark as read</div>
                       {QUICK_MARK_READ_OPTIONS.map(option => (
                         <button
                           key={option.value}
@@ -1535,13 +1647,11 @@ export function FeedReader() {
                             handleMarkReadBehaviorChange(option.value)
                             setShowViewOptions(false)
                           }}
-                          className={`w-full text-left px-3 py-2 text-sm hover:bg-slate-50 dark:hover:bg-slate-600 ${
-                            markReadBehavior === option.value ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300' : 'text-slate-700 dark:text-slate-200'
-                          }`}
+                          className={`dropdown-item ${markReadBehavior === option.value ? 'active' : ''}`}
                         >
                           <div className="flex flex-col text-left">
                             <span>{markReadBehavior === option.value ? '✓ ' : ''}{option.label}</span>
-                            <span className="text-[11px] text-slate-500 dark:text-slate-400">{option.helper}</span>
+                            <span className="text-[11px] text-theme-tertiary">{option.helper}</span>
                           </div>
                         </button>
                       ))}
@@ -1552,62 +1662,81 @@ export function FeedReader() {
             </div>
           </div>
           
-          <div className="text-sm text-slate-600 dark:text-slate-400">
-            {allFeedItems.filter(item => !item.isRead).length} unread
+          <div className="flex items-center gap-2 text-sm text-theme-secondary">
+            <span className="font-medium">{allFeedItems.filter(item => !item.isRead).length}</span>
+            <span>unread</span>
             {viewFilter !== 'all' && (
-              <span className="ml-2 text-xs text-blue-600 dark:text-blue-400">
-                • Showing {viewFilter === 'unread' ? 'unread' : 'read'} only
+              <span className="px-2 py-0.5 text-xs rounded-full bg-theme-accent-light text-theme-accent font-medium">
+                {viewFilter === 'unread' ? 'Unread only' : 'Read only'}
               </span>
             )}
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto">{/* This makes the list scrollable */}
+        <div className="flex-1 overflow-y-auto themed-scrollbar">
           {itemsLoading ? (
-            <div className="flex items-center justify-center p-8">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+            <div className="p-6 space-y-4">
+              {[1, 2, 3, 4].map(i => (
+                <div key={i} className="space-y-2 p-4 border-b border-theme-secondary">
+                  <div className="skeleton h-4 w-3/4" />
+                  <div className="skeleton h-3 w-1/2" />
+                  <div className="skeleton h-3 w-full" />
+                  <div className="skeleton h-3 w-2/3" />
+                </div>
+              ))}
             </div>
           ) : feedItems.length === 0 ? (
-            <div className="flex items-center justify-center p-8">
-              <div className="text-center text-slate-500 dark:text-slate-400">
-                <div className="text-4xl mb-4">📭</div>
-                <p className="text-sm">
-                  {viewFilter === 'unread' && 'No unread items'}
-                  {viewFilter === 'read' && 'No read items'}
-                  {viewFilter === 'all' && 'No items to display'}
-                </p>
-              </div>
+            <div className="flex flex-col items-center justify-center p-8 text-center">
+              <div className="text-5xl mb-4">📭</div>
+              <p className="text-lg font-medium text-theme-primary mb-1">
+                {viewFilter === 'unread' && 'All caught up!'}
+                {viewFilter === 'read' && 'No read items'}
+                {viewFilter === 'all' && 'No items yet'}
+              </p>
+              <p className="text-sm text-theme-tertiary">
+                {viewFilter === 'unread' && 'No unread articles in this feed'}
+                {viewFilter === 'read' && 'You haven\'t read any articles yet'}
+                {viewFilter === 'all' && 'Subscribe to feeds to see content here'}
+              </p>
             </div>
           ) : (
             feedItems.map((item) => (
               <div
                 key={item.id}
-                className={`relative w-full text-left border-b border-slate-100 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700/50 ${
-                  selectedItem === item.id ? 'bg-blue-50 dark:bg-blue-900/30 border-l-4 border-l-blue-500' : ''
-                } ${item.isRead ? 'opacity-70' : ''}`}
+                className={`article-card relative group ${
+                  selectedItem === item.id ? 'active' : ''
+                } ${item.isRead ? 'read' : ''}`}
               >
                 <button
                   onClick={() => {
                     handleItemClick(item.id)
                     setMobileView('content')
                   }}
-                  className="w-full p-4 pr-12"
+                  className="w-full pr-12 text-left"
                 >
                   <div className="space-y-2">
-                    <h3 className={`text-sm font-medium ${item.isRead ? 'text-slate-600 dark:text-slate-400' : 'text-slate-900 dark:text-slate-100'}`}>
-                      {item.title}
-                    </h3>
-                    <div className="text-xs text-slate-500 dark:text-slate-400">
-                      {item.author} • {item.publishedAt.toLocaleDateString()}
-                    </div>
-                    <p className="text-xs text-slate-600 dark:text-slate-400 line-clamp-2">
-                      {item.content.replace(/<[^>]*>/g, '').substring(0, 120)}...
-                    </p>
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs text-slate-500 dark:text-slate-400">{item.feedTitle}</span>
+                    <div className="flex items-start justify-between gap-2">
+                      <h3 className={`text-sm font-semibold leading-snug ${
+                        item.isRead ? 'text-theme-secondary' : 'text-theme-primary'
+                      }`}>
+                        {item.title}
+                      </h3>
                       {!item.isRead && (
-                        <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
+                        <div className="w-2 h-2 rounded-full bg-theme-accent flex-shrink-0 mt-1.5" />
                       )}
+                    </div>
+                    <div className="flex items-center gap-2 text-xs text-theme-tertiary">
+                      <span className="font-medium">{item.author}</span>
+                      <span>•</span>
+                      <span>{item.publishedAt.toLocaleDateString()}</span>
+                    </div>
+                    <p className="text-xs text-theme-secondary line-clamp-2 leading-relaxed">
+                      {item.content.replace(/<[^>]*>/g, '').substring(0, 140)}...
+                    </p>
+                    <div className="flex items-center gap-2 pt-1">
+                      <span className="tag-badge">
+                        {item.feedTitle}
+                      </span>
                     </div>
                   </div>
                 </button>
@@ -1616,10 +1745,10 @@ export function FeedReader() {
                     e.stopPropagation()
                     handleToggleFavorite(item.id, item.isFavorited || false)
                   }}
-                  className="absolute top-4 right-4 p-2 hover:bg-slate-200 dark:hover:bg-slate-600 rounded-md transition-colors"
+                  className="absolute top-4 right-4 p-2 rounded-lg opacity-0 group-hover:opacity-100 hover:bg-theme-hover transition-all"
                   title={item.isFavorited ? 'Remove from favorites' : 'Add to favorites'}
                 >
-                  <span className="text-base">
+                  <span className="text-xl">
                     {item.isFavorited ? '⭐' : '☆'}
                   </span>
                 </button>
@@ -1632,16 +1761,16 @@ export function FeedReader() {
       {/* Right Panel - Article Content */}
       <div className={`
         ${mobileView === 'list' && selectedItem ? 'hidden md:flex' : 'flex'}
-        flex-1 bg-white dark:bg-slate-800 flex-col max-h-screen
+        flex-1 bg-theme-secondary flex-col max-h-screen
         pt-32 md:pt-0
       `}>
         {/* Mobile Back Button */}
         {selectedItem && (
           <button
             onClick={() => setMobileView('list')}
-            className="md:hidden fixed top-20 left-4 z-50 p-2 bg-white dark:bg-slate-700 rounded-full shadow-lg"
+            className="md:hidden fixed top-20 left-4 z-50 p-2.5 bg-theme-surface rounded-full shadow-theme-lg border border-theme-primary"
           >
-            <svg className="w-6 h-6 text-slate-800 dark:text-slate-100" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className="w-5 h-5 text-theme-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
             </svg>
           </button>
@@ -1649,81 +1778,115 @@ export function FeedReader() {
         
         {selectedItemData ? (
           <>
-            <div className="p-6 border-b border-slate-200 dark:border-slate-700 flex-shrink-0">{/* Fixed header */}
-              <div className="flex items-start justify-between mb-2">
-                <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100 flex-1 pr-4">
-                  {selectedItemData.title}
-                </h1>
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => handleToggleReadStatus(selectedItemData)}
-                    className="px-3 py-2 text-sm font-medium rounded-md border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700"
-                  >
-                    {selectedItemData.isRead ? 'Mark as Unread' : 'Mark as Read'}
-                  </button>
-                  <button
-                    onClick={() => handleShareToNostr(selectedItemData, selectedItemOriginalUrl)}
-                    disabled={isSharing}
-                    className="p-2 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-md transition-colors flex-shrink-0 relative"
-                    title="Share to Nostr"
-                  >
-                    {isSharing ? (
-                      <span className="text-lg animate-spin">⏳</span>
-                    ) : shareSuccess ? (
-                      <span className="text-lg text-green-500">✓</span>
-                    ) : (
-                      <span className="text-lg">📤</span>
-                    )}
-                  </button>
-                  <button
-                    onClick={() => handleToggleFavorite(selectedItemData.id, selectedItemData.isFavorited || false)}
-                    className="p-2 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-md transition-colors flex-shrink-0"
-                    title={selectedItemData.isFavorited ? 'Remove from favorites' : 'Add to favorites'}
-                  >
-                    <span className="text-2xl">
-                      {selectedItemData.isFavorited ? '⭐' : '☆'}
-                    </span>
-                  </button>
+            <div className="bg-theme-surface-raised p-6 md:p-8 border-b border-theme-primary flex-shrink-0 shadow-theme-sm">
+              <div className="max-w-3xl mx-auto">
+                <div className="flex items-start justify-between gap-4 mb-4">
+                  <h1 className="text-2xl md:text-3xl font-bold text-theme-primary leading-tight" style={{ fontFamily: 'var(--heading-font)' }}>
+                    {selectedItemData.title}
+                  </h1>
+                  <div className="flex items-center gap-1 flex-shrink-0">
+                    <button
+                      onClick={() => handleToggleReadStatus(selectedItemData)}
+                      className="btn-theme-secondary text-sm hidden sm:flex items-center gap-2"
+                    >
+                      {selectedItemData.isRead ? (
+                        <>
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 19v-8.93a2 2 0 01.89-1.664l7-4.666a2 2 0 012.22 0l7 4.666A2 2 0 0121 10.07V19M3 19a2 2 0 002 2h14a2 2 0 002-2M3 19l6.75-4.5M21 19l-6.75-4.5M3 10l6.75 4.5M21 10l-6.75 4.5m0 0l-1.14.76a2 2 0 01-2.22 0l-1.14-.76" />
+                          </svg>
+                          <span>Mark Unread</span>
+                        </>
+                      ) : (
+                        <>
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                          </svg>
+                          <span>Mark Read</span>
+                        </>
+                      )}
+                    </button>
+                    <button
+                      onClick={() => handleShareToNostr(selectedItemData, selectedItemOriginalUrl)}
+                      disabled={isSharing}
+                      className="p-2.5 hover:bg-theme-hover rounded-lg transition-colors"
+                      title="Share to Nostr"
+                    >
+                      {isSharing ? (
+                        <svg className="w-5 h-5 text-theme-tertiary animate-spin" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                        </svg>
+                      ) : shareSuccess ? (
+                        <svg className="w-5 h-5 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                        </svg>
+                      ) : (
+                        <svg className="w-5 h-5 text-theme-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
+                        </svg>
+                      )}
+                    </button>
+                    <button
+                      onClick={() => handleToggleFavorite(selectedItemData.id, selectedItemData.isFavorited || false)}
+                      className="p-2.5 hover:bg-theme-hover rounded-lg transition-colors"
+                      title={selectedItemData.isFavorited ? 'Remove from favorites' : 'Add to favorites'}
+                    >
+                      <span className="text-2xl">
+                        {selectedItemData.isFavorited ? '⭐' : '☆'}
+                      </span>
+                    </button>
+                  </div>
+                </div>
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-theme-secondary">
+                  <span className="font-medium">{selectedItemData.author}</span>
+                  <span className="text-theme-muted">•</span>
+                  <span>{selectedItemData.publishedAt.toLocaleDateString('en-US', { 
+                    weekday: 'long', 
+                    year: 'numeric', 
+                    month: 'long', 
+                    day: 'numeric' 
+                  })}</span>
+                  <span className="text-theme-muted">•</span>
+                  <span className="tag-badge">{selectedItemData.feedTitle}</span>
+                  {selectedItemOriginalUrl && (
+                    <>
+                      <span className="text-theme-muted">•</span>
+                      <a
+                        href={selectedItemOriginalUrl}
+                        target="_blank"
+                        rel="noopener noreferrer" 
+                        className="inline-flex items-center gap-1 text-theme-accent hover:underline"
+                      >
+                        {selectedItemData.feedType === 'NOSTR' || selectedItemData.feedType === 'NOSTR_VIDEO' ? 'View on Nostr' : 'View Original'}
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                        </svg>
+                      </a>
+                    </>
+                  )}
                 </div>
               </div>
-              <div className="flex items-center space-x-4 text-sm text-slate-600 dark:text-slate-400">
-                <span>{selectedItemData.author}</span>
-                <span>•</span>
-                <span>{selectedItemData.publishedAt.toLocaleDateString()}</span>
-                <span>•</span>
-                <span>{selectedItemData.feedTitle}</span>
-                {selectedItemOriginalUrl && (
-                  <>
-                    <span>•</span>
-                    <a
-                      href={selectedItemOriginalUrl}
-                      target="_blank"
-                      rel="noopener noreferrer" 
-                      className="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
-                    >
-                      {selectedItemData.feedType === 'NOSTR' || selectedItemData.feedType === 'NOSTR_VIDEO' ? 'View on Nostr' : 'View Original'}
-                    </a>
-                  </>
-                )}
-              </div>
             </div>
-            <div className="flex-1 overflow-y-auto bg-slate-50 dark:bg-slate-800/50">
-              <div className="max-w-3xl mx-auto p-8">
-                <FormattedContent 
-                  content={selectedItemData.content}
-                  embedUrl={selectedItemData.embedUrl ?? undefined}
-                  thumbnail={selectedItemData.thumbnail ?? undefined}
-                  title={selectedItemData.title}
-                  className="prose prose-lg dark:prose-invert max-w-none"
-                />
+            <div className="flex-1 overflow-y-auto themed-scrollbar">
+              <div className="max-w-3xl mx-auto p-6 md:p-8">
+                <article className="article-content-inner p-6 md:p-10 rounded-xl">
+                  <FormattedContent 
+                    content={selectedItemData.content}
+                    embedUrl={selectedItemData.embedUrl ?? undefined}
+                    thumbnail={selectedItemData.thumbnail ?? undefined}
+                    title={selectedItemData.title}
+                    className="prose-theme"
+                  />
+                </article>
               </div>
             </div>
           </>
         ) : (
           <div className="flex-1 flex items-center justify-center">
-            <div className="text-center text-slate-500 dark:text-slate-400">
-              <div className="text-4xl mb-4">📖</div>
-              <p className="text-lg">Select an article to read</p>
+            <div className="text-center">
+              <div className="text-6xl mb-4 opacity-50">📖</div>
+              <p className="text-xl font-medium text-theme-secondary mb-2">Select an article to read</p>
+              <p className="text-sm text-theme-tertiary">Choose from the list on the left</p>
             </div>
           </div>
         )}
@@ -1762,30 +1925,33 @@ export function FeedReader() {
 
       {/* Sync Prompt Dialog */}
       {showSyncPrompt && pendingSyncImport && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white dark:bg-slate-800 rounded-lg shadow-xl w-96 max-w-[90vw] max-h-[80vh] flex flex-col">
-            <div className="p-6 border-b border-slate-200 dark:border-slate-700">
-              <h2 className="text-xl font-semibold text-slate-800 dark:text-slate-100">📡 Sync Available</h2>
+        <div className="modal-overlay">
+          <div className="modal-content w-96 max-w-[90vw] max-h-[80vh] flex flex-col animate-slide-in">
+            <div className="p-6 border-b border-theme-primary">
+              <h2 className="text-xl font-bold text-theme-primary flex items-center gap-2">
+                <span className="text-2xl">📡</span> Sync Available
+              </h2>
             </div>
-            <div className="p-6 overflow-y-auto">
-              <p className="text-slate-600 dark:text-slate-300 mb-4">
-                Found {pendingSyncImport.length} subscription(s) from another device. Would you like to import them?
+            <div className="p-6 overflow-y-auto themed-scrollbar">
+              <p className="text-theme-secondary mb-4">
+                Found <span className="font-semibold text-theme-primary">{pendingSyncImport.length}</span> subscription(s) from another device. Would you like to import them?
               </p>
-              <ul className="text-sm text-slate-600 dark:text-slate-400 mb-4 max-h-32 overflow-y-auto space-y-1">
+              <ul className="text-sm text-theme-tertiary mb-4 max-h-32 overflow-y-auto space-y-1.5 bg-theme-tertiary rounded-lg p-3">
                 {pendingSyncImport.map((feed, i) => (
-                  <li key={i} className="truncate">
-                    • [{feed.type}] {feed.url}
+                  <li key={i} className="truncate flex items-center gap-2">
+                    <span className="text-xs">{feed.type === 'RSS' ? '📰' : '⚡'}</span>
+                    <span className="truncate">{feed.url}</span>
                   </li>
                 ))}
               </ul>
             </div>
-            <div className="p-6 border-t border-slate-200 dark:border-slate-700 flex gap-3 justify-end">
+            <div className="p-6 border-t border-theme-primary flex gap-3 justify-end">
               <button
                 onClick={() => {
                   setShowSyncPrompt(false)
                   setPendingSyncImport(null)
                 }}
-                className="px-4 py-2 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-md"
+                className="btn-theme-secondary"
               >
                 Not Now
               </button>
@@ -1795,7 +1961,7 @@ export function FeedReader() {
                   setShowSyncPrompt(false)
                   setPendingSyncImport(null)
                 }}
-                className="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700"
+                className="btn-theme-primary"
               >
                 Import All
               </button>
@@ -1806,18 +1972,20 @@ export function FeedReader() {
 
       {/* Edit Tags Dialog */}
       {editingFeedId && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white dark:bg-slate-800 rounded-lg shadow-xl w-96 max-h-[80vh] flex flex-col">
-            <div className="p-6 border-b border-slate-200 dark:border-slate-700">
-              <h2 className="text-xl font-semibold text-slate-800 dark:text-slate-100">Edit Tags</h2>
+        <div className="modal-overlay">
+          <div className="modal-content w-96 max-h-[80vh] flex flex-col animate-slide-in">
+            <div className="p-6 border-b border-theme-primary">
+              <h2 className="text-xl font-bold text-theme-primary flex items-center gap-2">
+                <span className="text-xl">🏷️</span> Edit Tags
+              </h2>
             </div>
             
-            <div className="p-6 flex-1 overflow-y-auto">
+            <div className="p-6 flex-1 overflow-y-auto themed-scrollbar">
               <div className="mb-4">
-                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
-                  Tags
+                <label className="block text-sm font-medium text-theme-secondary mb-2">
+                  Add tags to organize this feed
                 </label>
-                <div className="flex space-x-2">
+                <div className="flex gap-2">
                   <input
                     type="text"
                     value={editTagInput}
@@ -1828,13 +1996,13 @@ export function FeedReader() {
                         handleAddEditTag()
                       }
                     }}
-                    placeholder="Add a tag..."
-                    className="flex-1 px-3 py-2 bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="Type a tag..."
+                    className="input-theme flex-1"
                   />
                   <button
                     type="button"
                     onClick={handleAddEditTag}
-                    className="px-4 py-2 bg-slate-100 dark:bg-slate-600 hover:bg-slate-200 dark:hover:bg-slate-500 rounded-md text-sm font-medium text-slate-700 dark:text-slate-200"
+                    className="btn-theme-secondary"
                   >
                     Add
                   </button>
@@ -1846,13 +2014,13 @@ export function FeedReader() {
                   {editTags.map((tag) => (
                     <span
                       key={tag}
-                      className="inline-flex items-center px-3 py-1 bg-blue-100 dark:bg-blue-500/30 text-blue-800 dark:text-blue-200 rounded-full text-sm"
+                      className="inline-flex items-center px-3 py-1.5 bg-theme-accent-light text-theme-accent rounded-full text-sm font-medium"
                     >
                       {tag}
                       <button
                         type="button"
                         onClick={() => handleRemoveEditTag(tag)}
-                        className="ml-2 hover:text-blue-900 dark:hover:text-blue-100"
+                        className="ml-2 hover:text-theme-accent-hover"
                       >
                         ×
                       </button>
@@ -1860,21 +2028,28 @@ export function FeedReader() {
                   ))}
                 </div>
               )}
+              
+              {editTags.length === 0 && (
+                <div className="text-center py-6 text-theme-tertiary">
+                  <div className="text-3xl mb-2">🏷️</div>
+                  <p className="text-sm">No tags yet. Add some above!</p>
+                </div>
+              )}
             </div>
 
-            <div className="flex justify-end space-x-3 p-6 border-t border-slate-200 dark:border-slate-700">
+            <div className="flex justify-end gap-3 p-6 border-t border-theme-primary">
               <button
                 onClick={handleCancelEdit}
-                className="px-4 py-2 text-sm font-medium text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-600 hover:bg-slate-200 dark:hover:bg-slate-500 rounded-md"
+                className="btn-theme-secondary"
               >
                 Cancel
               </button>
               <button
                 onClick={() => handleSaveEditedTags(editingFeedId)}
                 disabled={updateTagsMutation.isLoading}
-                className="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 rounded-md"
+                className="btn-theme-primary disabled:opacity-50"
               >
-                {updateTagsMutation.isLoading ? 'Saving...' : 'Save'}
+                {updateTagsMutation.isLoading ? 'Saving...' : 'Save Tags'}
               </button>
             </div>
           </div>
