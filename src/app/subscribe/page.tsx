@@ -156,8 +156,8 @@ function SubscribeContent() {
                   </p>
                 )}
                 <div className="flex gap-2 mt-2 flex-wrap">
-                  {guideFeed.tags.slice(0, 4).map(tag => (
-                    <span 
+                  {guideFeed.tags.slice(0, 4).map((tag: string) => (
+                    <span
                       key={tag}
                       className="px-2 py-0.5 bg-purple-100 dark:bg-purple-900/50 text-purple-700 dark:text-purple-300 rounded text-xs"
                     >

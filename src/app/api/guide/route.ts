@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/server/db'
+import type { GuideFeed } from '@prisma/client'
 
 // CORS headers for native apps
 const corsHeaders = {
@@ -70,7 +71,7 @@ export async function GET(request: NextRequest) {
     })
     
     // Format response based on format param
-    const formattedFeeds = feeds.map(feed => {
+    const formattedFeeds = feeds.map((feed: GuideFeed) => {
       const base = {
         npub: feed.npub,
         displayName: feed.displayName,

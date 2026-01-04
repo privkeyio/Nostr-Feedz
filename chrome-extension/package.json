@@ -1,0 +1,26 @@
+{
+  "name": "nostr-feedz-extension",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "build": "node build.js",
+    "watch": "node build.js --watch",
+    "typecheck": "tsc --noEmit",
+    "package": "node package.js",
+    "package:selfhost": "node package.js --update-url=https://example.com/updates.xml"
+  },
+  "dependencies": {
+    "@noble/hashes": "^1.4.0",
+    "@noble/secp256k1": "^2.1.0",
+    "@scure/base": "^1.1.7",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.0.268",
+    "@types/react": "^18.3.3",
+    "@types/react-dom": "^18.3.0",
+    "esbuild": "^0.24.0",
+    "typescript": "^5.3.3"
+  }
+}

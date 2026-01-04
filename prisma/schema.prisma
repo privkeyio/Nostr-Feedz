@@ -97,6 +97,7 @@ model UserPreference {
     id              String   @id @default(cuid())
     userPubkey      String   @unique // Nostr pubkey
     organizationMode String  @default("tags") // "tags" or "categories"
+    nostrRelays     String[] @default([])
     createdAt       DateTime @default(now())
     updatedAt       DateTime @updatedAt
     

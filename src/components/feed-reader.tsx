@@ -30,8 +30,8 @@ interface Feed {
   title: string
   type: 'RSS' | 'NOSTR' | 'NOSTR_VIDEO'
   unreadCount: number
-  url?: string
-  npub?: string
+  url?: string | null
+  npub?: string | null
   tags?: string[]
   categoryId?: string | null
   category?: Category | null
@@ -56,14 +56,6 @@ export function FeedReader() {
   const router = useRouter()
   const utils = api.useUtils()
   
-  // Add logging to track user state
-  useEffect(() => {
-    console.log('🔍 FeedReader: User state changed:', {
-      hasUser: !!user,
-      pubkey: user?.pubkey?.slice(0, 8),
-      npub: user?.npub?.slice(0, 12)
-    })
-  }, [user])
   const [selectedFeed, setSelectedFeed] = useState<string | null>('all')
   const [selectedItem, setSelectedItem] = useState<string | null>(null)
   const [showAddFeed, setShowAddFeed] = useState(false)
@@ -218,17 +210,12 @@ export function FeedReader() {
         // Check if there are new subscriptions to import
         if (result.data.rss.length === 0 && result.data.nostr.length === 0) return
         
-        const currentFeeds = feeds.map((f) => ({
+        const currentFeeds = feeds.map((f: Feed) => ({
           type: f.type,
           url: f.url || f.npub || '',
           tags: f.tags,
         }))
-        
-        // Debug: Log exactly what we're comparing
-        console.log('🔍 AUTO-SYNC DEBUG - feeds from DB:', feeds.map(f => ({ type: f.type, url: f.url, npub: f.npub, title: f.title })))
-        console.log('🔍 AUTO-SYNC DEBUG - currentFeeds mapped:', currentFeeds)
-        console.log('🔍 AUTO-SYNC DEBUG - remote data:', result.data)
-        
+
         const mergeResult = mergeSubscriptionLists(currentFeeds, result.data)
         
         if (mergeResult.toAdd.length > 0) {
@@ -285,7 +272,7 @@ export function FeedReader() {
       if (!data) return data
       return {
         ...data,
-        items: data.items.map((item) =>
+        items: data.items.map((item: FeedItem) =>
           item.id === itemId ? { ...item, ...updater(item) } : item
         ),
       }
@@ -297,7 +284,7 @@ export function FeedReader() {
       if (!data) return data
       return {
         ...data,
-        items: data.items.filter((favorite) => favorite.id !== itemId),
+        items: data.items.filter((favorite: FavoriteItem) => favorite.id !== itemId),
       }
     })
   }
@@ -305,7 +292,7 @@ export function FeedReader() {
   const addFavoriteToCache = (item: FeedItem) => {
     utils.feed.getFavorites.setData(FAVORITES_QUERY_INPUT, (data) => {
       if (!data) return data
-      const alreadyExists = data.items.some(fav => fav.id === item.id)
+      const alreadyExists = data.items.some((fav: FavoriteItem) => fav.id === item.id)
       if (alreadyExists) return data
 
       const newFavorite: FavoriteItem = {
@@ -320,15 +307,6 @@ export function FeedReader() {
       }
     })
   }
-  
-  console.log('🔍 Feed query params:', {
-    selectedFeed,
-    safeFeedId,
-    selectedTags,
-    filteredFeedIds,
-    feedsCount: feeds.length,
-    queryInput: feedQueryInput,
-  })
 
   const { data: feedItemsData, isLoading: itemsLoading } = api.feed.getFeedItems.useQuery(
     feedQueryInput,
@@ -493,7 +471,7 @@ export function FeedReader() {
           })
         }
       }
-      
+
       return { previousFeeds }
     },
     onError: (_err, _vars, context) => {
@@ -510,7 +488,7 @@ export function FeedReader() {
     onMutate: async ({ itemId }) => {
       await utils.feed.getFeeds.cancel()
       updateFeedItemCache(itemId, () => ({ isRead: false }))
-      
+
       const previousFeeds = utils.feed.getFeeds.getData()
       if (previousFeeds) {
         const item = feedItemsData?.items.find(i => i.id === itemId)
@@ -559,9 +537,9 @@ export function FeedReader() {
       id: 'all',
       title: 'All Items',
       type: 'RSS' as const,
-      unreadCount: feedItemsData?.items.filter(item => !item.isRead).length || 0,
+      unreadCount: feedItemsData?.items.filter((item: FeedItem) => !item.isRead).length || 0,
     },
-    ...feeds.map(feed => ({
+    ...feeds.map((feed: Feed) => ({
       id: feed.id,
       title: feed.title,
       type: feed.type as 'RSS' | 'NOSTR' | 'NOSTR_VIDEO',
@@ -624,7 +602,7 @@ export function FeedReader() {
   }
   
   const selectedItemData = selectedItem
-    ? (feedItems.find(item => item.id === selectedItem) || allFeedItems.find(item => item.id === selectedItem) || null)
+    ? (feedItems.find((item: FeedItem) => item.id === selectedItem) || allFeedItems.find((item: FeedItem) => item.id === selectedItem) || null)
     : null
   const selectedItemOriginalUrl = selectedItemData?.originalUrl ?? selectedItemData?.url
   const selectedItemIsRead = selectedItemData?.isRead ?? false
@@ -672,7 +650,7 @@ export function FeedReader() {
   // Handle marking item as read when clicked
   const handleItemClick = (itemId: string) => {
     setSelectedItem(itemId)
-    const item = allFeedItems.find(i => i.id === itemId)
+    const item = allFeedItems.find((i: FeedItem) => i.id === itemId)
     if (markReadBehavior === 'on-open' && item && !item.isRead) {
       updateFeedItemCache(itemId, () => ({ isRead: true }))
       markAsReadMutation.mutate({ itemId })
@@ -695,7 +673,7 @@ export function FeedReader() {
       removeFavoriteFromCache(itemId)
       removeFavoriteMutation.mutate({ itemId })
     } else {
-      const sourceItem = allFeedItems.find(item => item.id === itemId)
+      const sourceItem = allFeedItems.find((item: FeedItem) => item.id === itemId)
       if (sourceItem) {
         addFavoriteToCache({ ...sourceItem, isFavorited: true })
       }
@@ -1277,7 +1255,7 @@ export function FeedReader() {
                           <span className="text-base">📋</span>
                           <span>No Category</span>
                         </button>
-                        {categories.map((cat) => (
+                        {categories.map((cat: Category) => (
                           <button
                             key={cat.id}
                             onClick={(e) => {
@@ -1373,7 +1351,7 @@ export function FeedReader() {
                         </div>
                       </div>
                     </button>
-                    {categoriesWithUnread.map((cat) => (
+                    {categoriesWithUnread.map((cat: Category & { unreadCount: number; feedCount: number }) => (
                       <button
                         key={cat.id}
                         onClick={() => setSelectedCategoryId(cat.id)}
@@ -1558,7 +1536,7 @@ export function FeedReader() {
         <div className="p-5 border-b border-theme-primary flex-shrink-0">
           <div className="flex items-center justify-between mb-3">
             <h2 className="font-bold text-lg text-theme-primary">
-              {selectedFeed === 'all' ? 'All Items' : 
+              {selectedFeed === 'all' ? 'All Items' :
                allFeeds.find(f => f.id === selectedFeed)?.title || 'Select a feed'}
             </h2>
             
@@ -1700,7 +1678,7 @@ export function FeedReader() {
               </p>
             </div>
           ) : (
-            feedItems.map((item) => (
+            feedItems.map((item: FeedItem) => (
               <div
                 key={item.id}
                 className={`article-card relative group ${
@@ -1914,10 +1892,10 @@ export function FeedReader() {
         onChangeMarkReadBehavior={handleMarkReadBehaviorChange}
         organizationMode={organizationMode}
         onChangeOrganizationMode={handleOrganizationModeChange}
-        feeds={feeds.map((f) => ({ 
-          type: f.type, 
-          url: f.url || f.npub || '', 
-          tags: f.tags 
+        feeds={feeds.map((f: Feed) => ({
+          type: f.type,
+          url: f.url || f.npub || '',
+          tags: f.tags
         }))}
         userPubkey={user?.npub || user?.pubkey}
         onImportFeeds={handleImportFeeds}
@@ -2011,7 +1989,7 @@ export function FeedReader() {
               
               {editTags.length > 0 && (
                 <div className="flex flex-wrap gap-2">
-                  {editTags.map((tag) => (
+                  {editTags.map((tag: string) => (
                     <span
                       key={tag}
                       className="inline-flex items-center px-3 py-1.5 bg-theme-accent-light text-theme-accent rounded-full text-sm font-medium"

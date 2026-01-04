@@ -22,9 +22,9 @@ const DEFAULT_SYNC_RELAYS = [
 ]
 
 // Helper to get relays from localStorage or use defaults
-function getSyncRelays(): string[] {
+export function getSyncRelays(): string[] {
   if (typeof window === 'undefined') return DEFAULT_SYNC_RELAYS
-  
+
   const savedRelays = localStorage.getItem('nostr_relays')
   if (savedRelays) {
     try {
@@ -35,6 +35,16 @@ function getSyncRelays(): string[] {
     } catch (e) {
       console.error('Failed to parse saved relays:', e)
     }
+  }
+  return DEFAULT_SYNC_RELAYS
+}
+
+/**
+ * Get relays for server-side sync from provided list or defaults
+ */
+export function getSyncRelaysFromServer(providedRelays?: string[]): string[] {
+  if (providedRelays && providedRelays.length > 0) {
+    return providedRelays
   }
   return DEFAULT_SYNC_RELAYS
 }
@@ -61,7 +71,7 @@ export async function publishSubscriptionList(
 ): Promise<{ success: boolean; eventId?: string; error?: string }> {
   const pool = new SimplePool()
   const relays = getSyncRelays()
-  
+
   try {
     // Create the unsigned event
     const unsignedEvent: UnsignedEvent = {
@@ -80,21 +90,19 @@ export async function publishSubscriptionList(
 
     // Sign the event using NIP-07 or provided signer
     const signedEvent = await signEvent(unsignedEvent)
-    
+
     // Publish to all relays
     const publishPromises = pool.publish(relays, signedEvent)
-    
+
     // Wait for at least one relay to accept (use Promise.race as fallback)
     await Promise.race(publishPromises)
-    
-    console.log('Published subscription list to Nostr:', signedEvent.id)
-    
+
     return { success: true, eventId: signedEvent.id }
   } catch (error) {
     console.error('Failed to publish subscription list:', error)
-    return { 
-      success: false, 
-      error: error instanceof Error ? error.message : 'Unknown error' 
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error'
     }
   } finally {
     pool.close(relays)
@@ -109,27 +117,27 @@ export async function fetchSubscriptionList(
 ): Promise<{ success: boolean; data?: SubscriptionList; eventId?: string; createdAt?: number; error?: string }> {
   const pool = new SimplePool()
   const relays = getSyncRelays()
-  
+
   try {
     const pubkeyHex = getPubkeyHex(userPubkey)
-    
+
     // Fetch the subscription list event
     const event = await pool.get(relays, {
       kinds: [SUBSCRIPTION_LIST_KIND],
       authors: [pubkeyHex],
       '#d': ['nostr-feedz-subscriptions'],
     })
-    
+
     if (!event) {
-      return { 
-        success: true, 
+      return {
+        success: true,
         data: { rss: [], nostr: [] }, // Return empty list if none found
       }
     }
-    
+
     // Parse the content
     const content = JSON.parse(event.content) as SubscriptionList
-    
+
     return {
       success: true,
       data: content,
@@ -138,9 +146,54 @@ export async function fetchSubscriptionList(
     }
   } catch (error) {
     console.error('Failed to fetch subscription list:', error)
-    return { 
-      success: false, 
-      error: error instanceof Error ? error.message : 'Unknown error' 
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error'
+    }
+  } finally {
+    pool.close(relays)
+  }
+}
+
+/**
+ * Server-side version of fetchSubscriptionList that takes relays as an argument
+ */
+export async function fetchSubscriptionListFromServer(
+  userPubkey: string,
+  relays: string[]
+): Promise<{ success: boolean; data?: SubscriptionList; eventId?: string; createdAt?: number; error?: string }> {
+  const pool = new SimplePool()
+
+  try {
+    const pubkeyHex = getPubkeyHex(userPubkey)
+
+    // Fetch the subscription list event
+    const event = await pool.get(relays, {
+      kinds: [SUBSCRIPTION_LIST_KIND],
+      authors: [pubkeyHex],
+      '#d': ['nostr-feedz-subscriptions'],
+    })
+
+    if (!event) {
+      return {
+        success: true,
+        data: { rss: [], nostr: [] },
+      }
+    }
+
+    const content = JSON.parse(event.content) as SubscriptionList
+
+    return {
+      success: true,
+      data: content,
+      eventId: event.id,
+      createdAt: event.created_at,
+    }
+  } catch (error) {
+    console.error('Failed to fetch subscription list from server:', error)
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error'
     }
   } finally {
     pool.close(relays)
@@ -160,7 +213,7 @@ export function buildSubscriptionListFromFeeds(
   const rss: string[] = []
   const nostr: string[] = []
   const tags: Record<string, string[]> = {}
-  
+
   for (const feed of feeds) {
     if (feed.type === 'RSS') {
       rss.push(feed.url)
@@ -184,7 +237,7 @@ export function buildSubscriptionListFromFeeds(
       }
     }
   }
-  
+
   return { rss, nostr, tags }
 }
 
@@ -192,7 +245,7 @@ export function buildSubscriptionListFromFeeds(
  * Normalize a URL for comparison purposes
  * Handles trailing slashes, protocol, and common variations
  */
-function normalizeUrlForComparison(url: string): string {
+export function normalizeUrlForComparison(url: string): string {
   try {
     const urlObj = new URL(url.trim())
     // Remove trailing slash from pathname
@@ -213,7 +266,7 @@ function normalizeUrlForComparison(url: string): string {
 /**
  * Normalize an npub for comparison
  */
-function normalizeNpub(value: string): string {
+export function normalizeNpub(value: string): string {
   // Try to extract npub from the value (might be a URL or just npub)
   const match = value.match(/npub1[a-zA-Z0-9]+/)
   if (match) {
@@ -239,7 +292,7 @@ export function mergeSubscriptionLists(
       .filter(f => f.type === 'RSS' && f.url)
       .map(f => normalizeUrlForComparison(f.url))
   )
-  
+
   // For Nostr feeds, extract and normalize npubs
   const localNpubs = new Set(
     localFeeds
@@ -247,21 +300,14 @@ export function mergeSubscriptionLists(
       .filter(f => f.url) // Filter out empty URLs
       .map(f => normalizeNpub(f.url))
   )
-  
-  console.log('🔍 Sync merge - Local RSS URLs (normalized):', Array.from(localRssUrls))
-  console.log('🔍 Sync merge - Local Nostr npubs (normalized):', Array.from(localNpubs))
-  console.log('🔍 Sync merge - Remote RSS URLs:', remoteList.rss)
-  console.log('🔍 Sync merge - Remote Nostr npubs:', remoteList.nostr)
-  
+
   const toAdd: Array<{ type: 'RSS' | 'NOSTR'; url: string; tags?: string[] }> = []
-  
+
   // Check RSS feeds
   for (const rssUrl of remoteList.rss) {
     const normalizedRemoteUrl = normalizeUrlForComparison(rssUrl)
     const exists = localRssUrls.has(normalizedRemoteUrl)
-    
-    console.log(`🔍 RSS check: "${rssUrl}" -> normalized: "${normalizedRemoteUrl}" -> exists: ${exists}`)
-    
+
     if (!exists) {
       toAdd.push({
         type: 'RSS',
@@ -270,14 +316,12 @@ export function mergeSubscriptionLists(
       })
     }
   }
-  
+
   // Check Nostr feeds
   for (const npub of remoteList.nostr) {
     const normalizedRemoteNpub = normalizeNpub(npub)
     const exists = localNpubs.has(normalizedRemoteNpub)
-    
-    console.log(`🔍 Nostr check: "${npub}" -> normalized: "${normalizedRemoteNpub}" -> exists: ${exists}`)
-    
+
     if (!exists) {
       toAdd.push({
         type: 'NOSTR',
@@ -286,23 +330,21 @@ export function mergeSubscriptionLists(
       })
     }
   }
-  
+
   // Find local-only feeds (not in remote)
   const remoteRssNormalized = new Set(remoteList.rss.map(u => normalizeUrlForComparison(u)))
   const remoteNpubsNormalized = new Set(remoteList.nostr.map(n => normalizeNpub(n)))
-  
+
   const localOnly = localFeeds.filter(f => {
     if (!f.url) return true // Keep local feeds with no URL
-    
+
     if (f.type === 'RSS') {
       return !remoteRssNormalized.has(normalizeUrlForComparison(f.url))
     } else {
       return !remoteNpubsNormalized.has(normalizeNpub(f.url))
     }
   })
-  
-  console.log(`🔍 Sync result: ${toAdd.length} to add, ${localOnly.length} local-only`)
-  
+
   return { toAdd, localOnly }
 }
 
