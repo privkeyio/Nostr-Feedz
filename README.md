@@ -85,6 +85,15 @@ Nostr-Feedz is a full-stack web application built with Next.js that provides a u
 - Offline-capable service worker
 - App manifest for home screen installation
 
+### Chrome Extension
+- **Browser toolbar access** with unread count badge
+- **Feed detection** on any web page with RSS/Atom links
+- **One-click subscribe** via context menu or toolbar popup
+- **Background sync** with configurable polling interval
+- **Offline support** using IndexedDB for cached feeds and items
+- **Desktop notifications** for new articles
+- **Nostr authentication** via NIP-07 extension or nsec key
+
 ## Tech Stack
 
 ### Frontend
@@ -120,55 +129,55 @@ Nostr-Feedz is a full-stack web application built with Next.js that provides a u
 ## Getting Started
 
 ### Prerequisites
-- Node.js 18+ 
+- Node.js 18+
 - PostgreSQL database
 - Nostr browser extension (nos2x, Alby, etc.)
 
 ### Installation
 
 1. Clone the repository:
-\`\`\`bash
+```bash
 git clone https://github.com/PlebOne/Nostr-Feedz.git
 cd Nostr-Feedz
-\`\`\`
+```
 
 2. Install dependencies:
-\`\`\`bash
+```bash
 npm install
-\`\`\`
+```
 
 3. Set up environment variables:
-Create a \`.env\` file in the root directory:
-\`\`\`env
+Create a `.env` file in the root directory:
+```env
 DATABASE_URL="postgresql://user:password@localhost:5432/nostr_feedz"
-\`\`\`
+```
 
 4. Initialize the database:
-\`\`\`bash
+```bash
 npx prisma generate
 npx prisma db push
-\`\`\`
+```
 
 5. Run the development server:
-\`\`\`bash
+```bash
 npm run dev
-\`\`\`
+```
 
 6. Open [http://localhost:3000](http://localhost:3000) in your browser
 
 ### Docker Deployment
 
 1. Copy the environment example:
-\`\`\`bash
+```bash
 cp .env.production.example .env.production
-\`\`\`
+```
 
-2. Configure your environment variables in \`.env.production\`
+2. Configure your environment variables in `.env.production`
 
 3. Build and run with Docker Compose:
-\`\`\`bash
+```bash
 docker compose up -d
-\`\`\`
+```
 
 ## Usage
 
@@ -269,7 +278,7 @@ The application uses the following main models:
 
 ## Project Structure
 
-\`\`\`
+```
 src/
 ├── app/                    # Next.js app router pages
 │   ├── api/               # API routes
@@ -301,7 +310,16 @@ src/
 │           └── subscription.ts
 └── prisma/
     └── schema.prisma    # Database schema
-\`\`\`
+
+chrome-extension/
+├── src/
+│   ├── background.ts    # Service worker for sync and notifications
+│   ├── content.ts       # Feed detection on web pages
+│   ├── nostr.ts         # Nostr authentication helpers
+│   └── db/              # IndexedDB caching layer
+├── manifest.json        # Extension manifest (V3)
+└── dist/                # Built extension (load unpacked)
+```
 
 ## Contributing
 
